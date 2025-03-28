@@ -1,12 +1,16 @@
 [versions]
-activityCompose = "1.7.2"
+activityCompose = "1.10.1"
 agp = "8.8.0"
 coreKtx = "1.15.0"
 kotlin = "2.0.0"
-compose = "1.5.4"
-compose-material3 = "1.1.2"
-androidx-activityCompose = "1.8.0"
+compose = "1.7.8"
+compose-material3 = "1.3.1"
+androidx-activityCompose = "1.10.1"
 playServicesLocation = "21.3.0"
+googleServices = "4.4.2"
+firebaseBom = "33.11.0"
+navigationCompose = "2.8.9"
+firebaseFirestoreKtx = "25.1.3"
 
 [libraries]
 androidx-activity-compose-v172 = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -19,6 +23,14 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-foundation = { module = "androidx.compose.foundation:foundation", version.ref = "compose" }
 compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "compose-material3" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
+firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-inappmessaging = { group = "com.google.firebase", name = "firebase-inappmessaging" }
+firebase-inappmessaging-display = { group = "com.google.firebase", name = "firebase-inappmessaging-display" }
+navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx", version.ref = "firebaseFirestoreKtx" }
+
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -27,3 +39,4 @@ kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinCocoapods = { id = "org.jetbrains.kotlin.native.cocoapods", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+googleServices = { id = "com.google.gms.google-services", version.ref = "googleServices" }

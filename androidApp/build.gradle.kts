@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.googleServices)
 }
 
 android {
@@ -42,7 +43,14 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.play.services.location)
-    implementation(libs.androidx.activity.compose.v172) // Check latest version
-    implementation(libs.androidx.core.ktx) // Ensure core libraries are included
+    implementation(libs.androidx.activity.compose.v172)
+    implementation(libs.androidx.core.ktx)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.inappmessaging)
+    implementation(libs.firebase.inappmessaging.display)
+    implementation(libs.navigation.compose)
+    implementation(libs.firebase.firestore.ktx)
     debugImplementation(libs.compose.ui.tooling)
 }

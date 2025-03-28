@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "397474517950",
+    "project_id": "plshelp-f56c1",
+    "storage_bucket": "plshelp-f56c1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:397474517950:android:63c9d30c7effa8a8e39fef",
+        "android_client_info": {
+          "package_name": "com.example.plshelp.android"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAf5v-AsyUb67tctKs6LMMAza5fjOgoPbo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
