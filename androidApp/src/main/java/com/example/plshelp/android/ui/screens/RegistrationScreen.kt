@@ -1,4 +1,3 @@
-// RegistrationScreen.kt
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.foundation.layout.*
@@ -9,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.firestore.FirebaseFirestore
 import android.util.Log
 import kotlinx.coroutines.delay
@@ -21,15 +21,21 @@ fun RegistrationScreen(
     onRegisterFailure: (String) -> Unit,
     onRegister: (String, String) -> Unit,
     onBackToLogin: () -> Unit,
+    registerErrorMessage: String? // Added this parameter
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var registrationSuccess by remember { mutableStateOf(false) } // Add this line
+    var registrationSuccess by remember { mutableStateOf(false) }
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
-    val scope = rememberCoroutineScope() // Add this line
+    val scope = rememberCoroutineScope()
+
+    // Update errorMessage when registerErrorMessage changes
+    LaunchedEffect(registerErrorMessage) {
+        errorMessage = registerErrorMessage
+    }
 
     Column(
         modifier = Modifier
@@ -79,15 +85,14 @@ fun RegistrationScreen(
                                 if (user != null) {
                                     val userData = hashMapOf(
                                         "name" to name,
-                                        "email" to email
                                     )
                                     db.collection("users").document(user.uid)
                                         .set(userData)
                                         .addOnSuccessListener {
                                             Log.d("RegistrationScreen", "Firestore write successful")
-                                            registrationSuccess = true // Set registration success
+                                            registrationSuccess = true
                                             scope.launch {
-                                                delay(2000) // Delay for 2 seconds
+                                                delay(2000)
                                                 onRegisterSuccess()
                                             }
                                         }
@@ -99,7 +104,11 @@ fun RegistrationScreen(
                             } else {
                                 val exception = task.exception
                                 if (exception != null) {
-                                    onRegisterFailure(exception.message ?: "Registration failed.")
+                                    if ((exception as FirebaseAuthException).errorCode == "ERROR_EMAIL_ALREADY_IN_USE") {
+                                        onRegisterFailure("Email address is already in use.")
+                                    } else {
+                                        onRegisterFailure(exception.message ?: "Registration failed.")
+                                    }
                                 } else {
                                     onRegisterFailure("Registration failed.")
                                 }
@@ -136,6 +145,6 @@ fun RegistrationScreen(
 @Composable
 fun RegistrationScreenPreview() {
     MyApplicationTheme {
-        RegistrationScreen(onRegisterSuccess = {}, onRegisterFailure = {}, onRegister = { _, _ -> }, onBackToLogin = {})
+        RegistrationScreen(onRegisterSuccess = {}, onRegisterFailure = {}, onRegister = { _, _ -> }, onBackToLogin = {}, registerErrorMessage = null)
     }
 }

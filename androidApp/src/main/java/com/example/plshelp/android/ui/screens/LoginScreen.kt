@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -16,10 +17,17 @@ fun LoginScreen(
     onLoginFailure: (String) -> Unit,
     onRegisterClick: () -> Unit,
     onLogin: (String, String) -> Unit,
+    loginErrorMessage: String?,
+    onForgotPasswordClick: () -> Unit // Added this parameter
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Update errorMessage when loginErrorMessage changes
+    LaunchedEffect(loginErrorMessage) {
+        errorMessage = loginErrorMessage
+    }
 
     Column(
         modifier = Modifier
@@ -50,7 +58,6 @@ fun LoginScreen(
 
         Button(
             onClick = {
-                errorMessage = null
                 if (email.isEmpty() || password.isEmpty()) {
                     errorMessage = "Please enter email and password."
                 } else {
@@ -71,9 +78,16 @@ fun LoginScreen(
             Text("Register")
         }
 
+        TextButton(
+            onClick = { onForgotPasswordClick() }, // Added this button
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Forgot Password?")
+        }
+
         if (errorMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+            Text(errorMessage!!, color = Color.Red)
         }
     }
 }
@@ -82,6 +96,6 @@ fun LoginScreen(
 @Composable
 fun LoginScreenPreview() {
     MyApplicationTheme {
-        LoginScreen(onLoginSuccess = {}, onLoginFailure = {}, onRegisterClick = {}, onLogin = { _, _ -> })
+        LoginScreen(onLoginSuccess = {}, onLoginFailure = {}, onRegisterClick = {}, onLogin = { _, _ -> }, loginErrorMessage = null, onForgotPasswordClick = {})
     }
 }

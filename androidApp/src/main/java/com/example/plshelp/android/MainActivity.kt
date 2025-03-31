@@ -1,3 +1,4 @@
+// MainActivity.kt
 package com.example.plshelp.android
 
 import android.Manifest
@@ -31,6 +32,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -62,6 +65,11 @@ class MainActivity : ComponentActivity() {
                 var showRegistration by remember { mutableStateOf(false) }
                 var loginErrorMessage by remember { mutableStateOf<String?>(null) }
                 var registerErrorMessage by remember { mutableStateOf<String?>(null) }
+                var showForgotPassword by remember { mutableStateOf(false) }
+                var forgotPasswordErrorMessage by remember { mutableStateOf<String?>(null) }
+
+                // State to trigger navigation after successful login/registration
+                var navigateAfterAuth by remember { mutableStateOf(false) }
 
                 if (isLoggedIn) {
                     Scaffold(
@@ -89,9 +97,7 @@ class MainActivity : ComponentActivity() {
                                     onSignOut = {
                                         auth.signOut()
                                         isLoggedIn = false
-                                        navController.navigate(BottomNavItem.Location.route) {
-                                            popUpTo(0)
-                                        }
+                                        navigateAfterAuth = true // Trigger navigation
                                     },
                                     modifier = Modifier.padding(paddingValues)
                                 )
@@ -102,10 +108,9 @@ class MainActivity : ComponentActivity() {
                     if (showRegistration) {
                         RegistrationScreen(
                             onRegisterSuccess = {
-                                showRegistration = false // Go back to login
-                                navController.navigate(BottomNavItem.Location.route) {
-                                    popUpTo(0)
-                                }
+                                showRegistration = false
+                                navigateAfterAuth = true // Trigger navigation
+                                registerErrorMessage = null //Clear error on success
                             },
                             onRegisterFailure = { errorMessage ->
                                 registerErrorMessage = errorMessage
@@ -114,10 +119,9 @@ class MainActivity : ComponentActivity() {
                                 auth.createUserWithEmailAndPassword(email, password)
                                     .addOnCompleteListener(this) { task ->
                                         if (task.isSuccessful) {
-                                            showRegistration = false // Go back to login
-                                            navController.navigate(BottomNavItem.Location.route) {
-                                                popUpTo(0)
-                                            }
+                                            showRegistration = false
+                                            navigateAfterAuth = true // Trigger navigation
+                                            registerErrorMessage = null//Clear error on success
                                         } else {
                                             val exception = task.exception
                                             if (exception is FirebaseAuthException) {
@@ -128,15 +132,30 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                             },
-                            onBackToLogin = { showRegistration = false }
+                            onBackToLogin = { showRegistration = false },
+                            registerErrorMessage = registerErrorMessage//Pass error message
+                        )
+                    } else if (showForgotPassword) {
+                        ForgotPasswordScreen(
+                            onResetSuccess = {
+                                showForgotPassword = false
+                                forgotPasswordErrorMessage = null
+                            },
+                            onResetFailure = { errorMessage ->
+                                forgotPasswordErrorMessage = errorMessage
+                            },
+                            onBackToLogin = {
+                                showForgotPassword = false
+                                forgotPasswordErrorMessage = null
+                            },
+                            forgotPasswordErrorMessage = forgotPasswordErrorMessage
                         )
                     } else {
                         LoginScreen(
                             onLoginSuccess = {
                                 isLoggedIn = true
-                                navController.navigate(BottomNavItem.Location.route) {
-                                    popUpTo(0)
-                                }
+                                loginErrorMessage = null //clear error on success
+                                navigateAfterAuth = true
                             },
                             onLoginFailure = { errorMessage ->
                                 loginErrorMessage = errorMessage
@@ -147,20 +166,29 @@ class MainActivity : ComponentActivity() {
                                     .addOnCompleteListener(this) { task ->
                                         if (task.isSuccessful) {
                                             isLoggedIn = true
-                                            navController.navigate(BottomNavItem.Location.route) {
-                                                popUpTo(0)
-                                            }
+                                            loginErrorMessage = null //clear error on success
+                                            navigateAfterAuth = true
                                         } else {
-                                            val exception = task.exception
-                                            if (exception is FirebaseAuthException) {
-                                                loginErrorMessage = exception.message
-                                            } else {
-                                                loginErrorMessage = "Login failed."
-                                            }
+                                            loginErrorMessage = "Invalid email or password." //Simplified error
                                         }
                                     }
+                            },
+                            loginErrorMessage = loginErrorMessage,
+                            onForgotPasswordClick = {
+                                showForgotPassword = true
+                                forgotPasswordErrorMessage = null
                             }
                         )
+                    }
+                }
+
+                // Navigate after auth if triggered
+                if (navigateAfterAuth) {
+                    LaunchedEffect(Unit) {
+                        navController.navigate(BottomNavItem.Location.route) {
+                            popUpTo(0)
+                        }
+                        navigateAfterAuth = false // Reset trigger
                     }
                 }
             }
