@@ -53,5 +53,6 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.androidx.foundation.android)
+    implementation(libs.coroutinesPlayServices)
     debugImplementation(libs.compose.ui.tooling)
 }

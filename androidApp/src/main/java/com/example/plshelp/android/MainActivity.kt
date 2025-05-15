@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.launch
 import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
+import com.example.plshelp.android.ui.screens.ListingDetailScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -90,7 +91,15 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             composable(BottomNavItem.Listings.route) {
-                                ListingsScreen()
+                                ListingsScreen(onNavigateToDetail = { listingId ->
+                                    navController.navigate("listingDetail/$listingId")
+                                })
+                            }
+                            composable("listingDetail/{listingId}") { backStackEntry ->
+                                val listingId = backStackEntry.arguments?.getString("listingId")
+                                if (listingId != null) {
+                                    ListingDetailScreen(listingId = listingId)
+                                }
                             }
                             composable(BottomNavItem.Profile.route) {
                                 ProfileScreen(
