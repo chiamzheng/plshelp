@@ -1,4 +1,3 @@
-// ListingsScreen.kt
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.animation.animateContentSize
@@ -50,6 +49,7 @@ import java.util.Date
 import java.util.Locale
 import android.location.Location
 import androidx.compose.runtime.LaunchedEffect
+import com.example.plshelp.android.ui.components.CategoryChip
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,55 +182,42 @@ fun ExpandableListingCard(
                     fontSize = 18.sp,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                CategoryChip(categoryString = listing.category)
-                Text(text = distance, fontSize = 16.sp) // Display distance instead of price
+                Text(text = distance, fontSize = 16.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 IconButton(onClick = { isExpanded = !isExpanded }) {
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = "Expand")
                 }
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val categories = listing.category.split(", ").map { it.trim() }
+                categories.forEach { category ->
+                    CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
+                }
+            }
             if (isExpanded) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = "Description: ${listing.description}", fontSize = 14.sp)
-                if (!listing.imgURL.isNullOrEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Image URL: ${listing.imgURL}", fontSize = 12.sp)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                // Coordinates are no longer displayed here
+                Text(text = " ${listing.description}", fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { onNavigateToDetail(listing.id) }) {
-                    Text("View Details")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Price: $${listing.price}",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+                    Button(onClick = { onNavigateToDetail(listing.id) }) {
+                        Text("View Details")
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun CategoryChip(categoryString: String) {
-    val categories = categoryString.split(", ").map { it.trim().lowercase(Locale.getDefault()) }
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        categories.forEach { category ->
-            val (color, text) = when (category) {
-                "urgent" -> Pair(Color.Red, "Urgent")
-                "borrow" -> Pair(Color.Blue, "Borrow")
-                else -> Pair(Color.Gray, category.replaceFirstChar {
-                    if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
-                })
-            }
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                fontWeight = FontWeight.Bold,
-                style = androidx.compose.ui.text.TextStyle(
-                    background = color
-                )
-            )
         }
     }
 }

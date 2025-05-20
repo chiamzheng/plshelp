@@ -1,4 +1,3 @@
-// MainActivity.kt
 package com.example.plshelp.android
 
 import android.Manifest
@@ -9,8 +8,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
@@ -19,22 +20,20 @@ import androidx.navigation.compose.rememberNavController
 import com.example.plshelp.android.data.LocationManager
 import com.example.plshelp.android.data.LocationService
 import com.example.plshelp.android.ui.navigation.BottomNavItem
+import com.example.plshelp.android.ui.screens.CreateRequestScreen
+import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
+import com.example.plshelp.android.ui.screens.ListingDetailScreen
 import com.example.plshelp.android.ui.screens.ListingsScreen
 import com.example.plshelp.android.ui.screens.LocationScreen
 import com.example.plshelp.android.ui.screens.LoginScreen
+import com.example.plshelp.android.ui.screens.MyApplicationTheme
 import com.example.plshelp.android.ui.screens.ProfileScreen
 import com.example.plshelp.android.ui.screens.RegistrationScreen
-import com.example.plshelp.android.ui.screens.MyApplicationTheme
 import com.google.firebase.auth.FirebaseAuth
-import android.util.Log
 import com.google.firebase.auth.FirebaseAuthException
+import android.util.Log
 import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.Modifier
 import kotlinx.coroutines.launch
-import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
-import com.example.plshelp.android.ui.screens.ListingDetailScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -78,7 +77,11 @@ class MainActivity : ComponentActivity() {
                             BottomNavigationBar(navController = navController)
                         }
                     ) { paddingValues ->
-                        NavHost(navController = navController, startDestination = BottomNavItem.Location.route) {
+                        NavHost(
+                            navController = navController,
+                            startDestination = BottomNavItem.Location.route,
+                            Modifier.padding(paddingValues)
+                        ) {
                             composable(BottomNavItem.Location.route) {
                                 LocationScreen(
                                     onCheckLocation = { updateText ->
@@ -110,6 +113,15 @@ class MainActivity : ComponentActivity() {
                                     },
                                     modifier = Modifier.padding(paddingValues)
                                 )
+                            }
+                            composable(BottomNavItem.CreateRequest.route) {
+                                CreateRequestScreen(onNavigateToListings = {
+                                    navController.navigate(BottomNavItem.Listings.route) {
+                                        popUpTo(BottomNavItem.Listings.route) {
+                                            inclusive = true
+                                        }
+                                    }
+                                })
                             }
                         }
                     }
@@ -206,41 +218,46 @@ class MainActivity : ComponentActivity() {
         checkForegroundLocationPermission()
     }
 
-    private fun checkForegroundLocationPermission() {
+    @Composable
+    fun BottomNavigationBar(navController: androidx.navigation.NavController) {
+        val items = listOf(
+            BottomNavItem.Location,
+            BottomNavItem.Listings,
+            BottomNavItem.CreateRequest,
+            BottomNavItem.Profile
+        )
+
+        NavigationBar {
+            val navBackStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route
+
+            items.forEach { item ->
+                NavigationBarItem(
+                    icon = { Icon(imageVector = item.icon, contentDescription = item.label) },
+                    label = { Text(item.label) },
+                    selected = currentRoute == item.route,
+                    onClick = {
+                        navController.navigate(item.route) {
+                            navController.graph.startDestinationRoute?.let { route ->
+                                popUpTo(route) {
+                                    saveState = true
+                                }
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private fun checkForegroundLocationPermission() { // Added function
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             Log.d("MainActivity", "Foreground location permission already granted.")
         } else {
             Log.d("MainActivity", "Requesting foreground location permission.")
             fineLocationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-    }
-}
-
-@Composable
-fun BottomNavigationBar(navController: androidx.navigation.NavController) {
-    val items = listOf(BottomNavItem.Location, BottomNavItem.Listings, BottomNavItem.Profile)
-
-    NavigationBar {
-        val navBackStackEntry by navController.currentBackStackEntryAsState()
-        val currentRoute = navBackStackEntry?.destination?.route
-
-        items.forEach { item ->
-            NavigationBarItem(
-                icon = { Icon(imageVector = item.icon, contentDescription = item.label) },
-                label = { Text(item.label) },
-                selected = currentRoute == item.route,
-                onClick = {
-                    navController.navigate(item.route) {
-                        navController.graph.startDestinationRoute?.let { route ->
-                            popUpTo(route) {
-                                saveState = true
-                            }
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
-            )
         }
     }
 }
