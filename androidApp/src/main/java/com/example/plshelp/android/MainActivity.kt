@@ -33,7 +33,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import android.util.Log
 import androidx.navigation.compose.currentBackStackEntryAsState
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 

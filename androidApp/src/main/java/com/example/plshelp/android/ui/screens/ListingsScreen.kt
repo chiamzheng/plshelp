@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Refresh
@@ -36,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,8 +46,21 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.location.Location
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableDoubleStateOf
 import com.example.plshelp.android.ui.components.CategoryChip
+import androidx.compose.material3.Switch
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.res.painterResource // Import painterResource
+import com.example.plshelp.android.R
+
+// New enum to define the display mode
+enum class DisplayMode {
+    DISTANCE,
+    WALK_TIME
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,20 +71,18 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
     val lastFetchTime by viewModel.lastFetchTimeState
     val context = LocalContext.current
 
-    // Replace with your actual current location retrieval logic
-    val currentLat = remember { mutableStateOf(LocationManager.targetLat) } // Placeholder
-    val currentLon = remember { mutableStateOf(LocationManager.targetLon) } // Placeholder
+    val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
+    val currentLon = remember { mutableDoubleStateOf(LocationManager.targetLon) }
 
-    // You'll need to update currentLat and currentLon based on actual location updates
+    // State for the display mode (distance or walk time)
+    var displayMode by remember { mutableStateOf(DisplayMode.DISTANCE) }
+
     LaunchedEffect(Unit) {
         LocationManager.checkUserLocation(context) { result ->
-            // You might want to parse the latitude and longitude from the result
-            // and update currentLat.value and currentLon.value
-            // This is a basic example; adapt to your actual location update mechanism
             val parts = result.split("\n").last().split(", ")
             if (parts.size == 2) {
-                currentLat.value = parts[0].toDoubleOrNull() ?: LocationManager.targetLat
-                currentLon.value = parts[1].toDoubleOrNull() ?: LocationManager.targetLon
+                currentLat.doubleValue = parts[0].toDoubleOrNull() ?: LocationManager.targetLat
+                currentLon.doubleValue = parts[1].toDoubleOrNull() ?: LocationManager.targetLon
             }
         }
     }
@@ -89,7 +98,7 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
 
                         val lastUpdatedText = remember(timeDifferenceSeconds) {
                             when {
-                                timeDifferenceSeconds < 60 -> "${timeDifferenceSeconds} secs ago"
+                                timeDifferenceSeconds < 60 -> "$timeDifferenceSeconds secs ago"
                                 timeDifferenceSeconds < 3600 -> "${timeDifferenceSeconds / 60} mins ago"
                                 else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFetchTime))
                             }
@@ -112,29 +121,63 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
             )
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.padding(paddingValues)) {
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+        Column(modifier = Modifier.padding(paddingValues)) {
+            // This is the row with the "Filter by" button and the toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Button(
+                    onClick = {
+                        // TODO: Implement filter functionality
+                    },
+                    modifier = Modifier.wrapContentWidth()
+                ) {
+                    Text("Filter by")
                 }
-            } else {
-                if (listings.isEmpty()) {
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Distance", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Switch(
+                        checked = displayMode == DisplayMode.WALK_TIME,
+                        onCheckedChange = { isChecked ->
+                            displayMode = if (isChecked) DisplayMode.WALK_TIME else DisplayMode.DISTANCE
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Walk Time", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No listings available.", fontSize = 18.sp)
+                        CircularProgressIndicator()
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp)
-                    ) {
-                        items(listings) { listing ->
-                            ExpandableListingCard(
-                                listing = listing,
-                                onNavigateToDetail = onNavigateToDetail,
-                                currentLat = currentLat.value,
-                                currentLon = currentLon.value
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                    if (listings.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No listings available.", fontSize = 18.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                        ) {
+                            items(listings) { listing ->
+                                ExpandableListingCard(
+                                    listing = listing,
+                                    onNavigateToDetail = onNavigateToDetail,
+                                    currentLat = currentLat.doubleValue,
+                                    currentLon = currentLon.doubleValue,
+                                    displayMode = displayMode
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
                         }
                     }
                 }
@@ -148,17 +191,45 @@ fun ExpandableListingCard(
     listing: Listing,
     onNavigateToDetail: (String) -> Unit,
     currentLat: Double,
-    currentLon: Double
+    currentLon: Double,
+    displayMode: DisplayMode
 ) {
     var isExpanded by remember { mutableStateOf(false) }
-    val distance = remember(listing.coord, currentLat, currentLon) {
+
+    val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
         if (listing.coord.size == 2) {
             val listingLat = listing.coord[0]
             val listingLon = listing.coord[1]
             val results = FloatArray(1)
             Location.distanceBetween(currentLat, currentLon, listingLat, listingLon, results)
-            val distanceInKm = results[0] / 1000
-            String.format("%.2f km", distanceInKm)
+            val distanceInMeters = results[0]
+
+            when (displayMode) {
+                DisplayMode.DISTANCE -> {
+                    if (distanceInMeters < 1000) {
+                        String.format("%.0f m", distanceInMeters)
+                    } else {
+                        val distanceInKm = distanceInMeters / 1000
+                        String.format("%.2f km", distanceInKm)
+                    }
+                }
+                DisplayMode.WALK_TIME -> {
+                    // Average walking speed: ~1.4 meters per second (or 5 km/h)
+                    val walkingSpeedMetersPerSecond = 1.4
+                    val timeInSeconds = distanceInMeters / walkingSpeedMetersPerSecond
+                    val timeInMinutes = (timeInSeconds / 60).toInt()
+
+                    when {
+                        timeInMinutes < 1 -> "<1 min"
+                        timeInMinutes < 60 -> "$timeInMinutes min"
+                        else -> {
+                            val hours = timeInMinutes / 60
+                            val remainingMinutes = timeInMinutes % 60
+                            "$hours hr $remainingMinutes min"
+                        }
+                    }
+                }
+            }
         } else {
             "N/A"
         }
@@ -182,7 +253,18 @@ fun ExpandableListingCard(
                     fontSize = 18.sp,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                Text(text = distance, fontSize = 16.sp)
+                // New Row to hold the icon and the distance/walk time text
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.baseline_directions_walk_24), // Use the R class here
+                        contentDescription = "Distance or Walk Time",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = formattedDistanceOrTime, fontSize = 16.sp)
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 IconButton(onClick = { isExpanded = !isExpanded }) {
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = "Expand")

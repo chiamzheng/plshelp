@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.lang.Exception
 import com.example.plshelp.android.ui.components.CategoryChip // Import CategoryChip
-import java.util.Locale
+
 
 // Data class for Location Selection
 data class LocationSelection(
@@ -259,28 +259,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 ) {
                     rowCategories.forEach { category ->
                         val isSelected = categorySelection.selectedCategories.contains(category.lowercase())
-
-                        val chipColor = remember(isSelected) {
-                            if (isSelected) {
-                                when (category.lowercase()) {
-                                    "urgent" -> Color.Red
-                                    "helper" -> Color.Blue
-                                    "delivery" -> Color(0xFF4CAF50) // Green
-                                    "free" -> Color(0xFFFF9800) // Orange
-                                    "others" -> Color.Gray
-                                    "invite" -> Color(0xFF34ebd8) // Cyan
-                                    "trade" -> Color(0xFF9C27B0) // Purple
-                                    "advice" -> Color(0xFF607D8B) // Blue Grey
-                                    "event" -> Color(0xFFFFC107) // Amber
-                                    "study" -> Color(0xFF2196F3) // Light Blue
-                                    "borrow" -> Color(0xFFf305ff) // Pink
-                                    "food" -> Color(0xFFAFBB00) // Lime
-                                    else -> Color.LightGray
-                                }
-                            } else {
-                                Color.LightGray // Greyed out color when not selected
-                            }
-                        }
 
                         CategoryChip(
                             categoryString = category, // Use the capitalized category directly

@@ -1,7 +1,6 @@
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
@@ -9,13 +8,11 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.delay
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import android.util.Log
+import androidx.compose.runtime.mutableLongStateOf
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,8 +37,7 @@ class ListingsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
     private val _lastUpdated = MutableStateFlow<String?>(null)
-    val lastUpdated: StateFlow<String?> = _lastUpdated
-    private val _lastFetchTime = mutableStateOf(0L)
+    private val _lastFetchTime = mutableLongStateOf(0L)
     val lastFetchTimeState: State<Long> = _lastFetchTime
     private val refreshIntervalMillis = TimeUnit.MINUTES.toMillis(5)
 
@@ -62,7 +58,7 @@ class ListingsViewModel : ViewModel() {
         viewModelScope.launch {
             while (true) {
                 delay(refreshIntervalMillis)
-                if (System.currentTimeMillis() - _lastFetchTime.value >= refreshIntervalMillis) {
+                if (System.currentTimeMillis() - _lastFetchTime.longValue >= refreshIntervalMillis) {
                     Log.d("ListingsViewModel", "Periodic refresh triggered")
                     fetchListings()
                 }
@@ -104,8 +100,8 @@ class ListingsViewModel : ViewModel() {
                 }
                 _listings.value.clear()
                 _listings.value.addAll(fetchedListings)
-                _lastFetchTime.value = System.currentTimeMillis()
-                _lastUpdated.value = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(_lastFetchTime.value))
+                _lastFetchTime.longValue = System.currentTimeMillis()
+                _lastUpdated.value = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(_lastFetchTime.longValue))
                 Log.d("ListingsViewModel", "Number of listings in ViewModel: ${_listings.value.size}")
                 _isLoading.value = false
             } catch (e: Exception) {
