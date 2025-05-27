@@ -1,11 +1,15 @@
 [versions]
 activityCompose = "1.10.1"
-agp = "8.8.0"
+agp = "8.8.1"
 coreKtx = "1.15.0"
 kotlin = "2.0.0"
 compose = "1.7.8"
 compose-material3 = "1.3.1"
 androidx-activityCompose = "1.10.1"
+kotlinxIoStreams = "0.3.1"
+mapboxAndroidPluginLocationlayer = "11.0.0"
+mapboxMapsAndroid = "11.12.2"
+mapsCompose = "11.12.2"
 playServicesLocation = "21.3.0"
 googleServices = "4.4.2"
 firebaseBom = "33.11.0"
@@ -13,6 +17,7 @@ navigationCompose = "2.8.9"
 firebaseFirestoreKtx = "25.1.3"
 foundationAndroid = "1.7.2"
 coroutinesPlayServices = "1.7.3"
+
 
 [libraries]
 androidx-activity-compose-v172 = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -24,6 +29,9 @@ compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = 
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
 compose-foundation = { module = "androidx.compose.foundation:foundation", version.ref = "compose" }
 compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "compose-material3" }
+mapbox-android-plugin-locationlayer = { module = "com.mapbox.mapboxsdk:mapbox-android-plugin-locationlayer", version.ref = "mapboxAndroidPluginLocationlayer" }
+mapbox-maps-android = { module = "com.mapbox.maps:mapbox-maps-android", version.ref = "mapboxMapsAndroid" }
+maps-compose = { module = "com.mapbox.extension:maps-compose", version.ref = "mapsCompose" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
@@ -34,6 +42,8 @@ navigation-compose = { group = "androidx.navigation", name = "navigation-compose
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx", version.ref = "firebaseFirestoreKtx" }
 androidx-foundation-android = { group = "androidx.compose.foundation", name = "foundation-android", version.ref = "foundationAndroid" }
 coroutinesPlayServices = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
+
+
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

@@ -1,6 +1,7 @@
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState // Import for animation
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -24,37 +27,40 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate // Import for rotation
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.plshelp.android.R
 import com.example.plshelp.android.data.LocationManager
+import com.example.plshelp.android.ui.components.CategoryChip // Ensure this import is correct
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.location.Location
-import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableDoubleStateOf
-import com.example.plshelp.android.ui.components.CategoryChip
-import androidx.compose.material3.Switch
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.ui.res.painterResource // Import painterResource
-import com.example.plshelp.android.R
 
 // New enum to define the display mode
 enum class DisplayMode {
@@ -74,8 +80,21 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
     val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
     val currentLon = remember { mutableDoubleStateOf(LocationManager.targetLon) }
 
-    // State for the display mode (distance or walk time)
     var displayMode by remember { mutableStateOf(DisplayMode.DISTANCE) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState()
+
+    // State for selected filter categories
+    var filterCategorySelection by rememberSaveable(stateSaver = categorySelectionSaver) {
+        mutableStateOf(CategorySelection(mutableSetOf()))
+    }
+
+    // Predefined categories for filtering - UPDATED WITH FULL LIST
+    val availableFilterCategories = listOf(
+        "Urgent", "Helper", "Delivery", "Free", "Others",
+        "Invite", "Trade", "Advice", "Event", "Study",
+        "Borrow", "Food"
+    )
 
     LaunchedEffect(Unit) {
         LocationManager.checkUserLocation(context) { result ->
@@ -83,6 +102,21 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
             if (parts.size == 2) {
                 currentLat.doubleValue = parts[0].toDoubleOrNull() ?: LocationManager.targetLat
                 currentLon.doubleValue = parts[1].toDoubleOrNull() ?: LocationManager.targetLon
+            }
+        }
+    }
+
+    // Filter the listings based on selected categories
+    val filteredListings = remember(listings, filterCategorySelection.selectedCategories) {
+        if (filterCategorySelection.selectedCategories.isEmpty()) {
+            listings
+        } else {
+            listings.filter { listing ->
+                val listingCategories = listing.category
+                    .split(", ")
+                    .map { it.trim().lowercase(Locale.getDefault()) }
+                    .toSet()
+                listingCategories.any { it in filterCategorySelection.selectedCategories }
             }
         }
     }
@@ -122,7 +156,6 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
-            // This is the row with the "Filter by" button and the toggle
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -131,9 +164,7 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Button(
-                    onClick = {
-                        // TODO: Implement filter functionality
-                    },
+                    onClick = { showFilterSheet = true },
                     modifier = Modifier.wrapContentWidth()
                 ) {
                     Text("Filter by")
@@ -159,7 +190,7 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
                         CircularProgressIndicator()
                     }
                 } else {
-                    if (listings.isEmpty()) {
+                    if (filteredListings.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No listings available.", fontSize = 18.sp)
                         }
@@ -168,7 +199,7 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                         ) {
-                            items(listings) { listing ->
+                            items(filteredListings) { listing ->
                                 ExpandableListingCard(
                                     listing = listing,
                                     onNavigateToDetail = onNavigateToDetail,
@@ -179,6 +210,61 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Filter Modal Bottom Sheet
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Filter Categories", style = MaterialTheme.typography.headlineSmall)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("Category", style = MaterialTheme.typography.titleMedium)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    availableFilterCategories.chunked(4).forEach { rowCategories ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            rowCategories.forEach { category ->
+                                val isSelected = filterCategorySelection.selectedCategories.contains(category.lowercase(Locale.getDefault()))
+
+                                CategoryChip(
+                                    categoryString = category,
+                                    isSelected = isSelected,
+                                    onCategoryClick = { clickedCategory ->
+                                        val lowercasedCategory = clickedCategory.lowercase(Locale.getDefault())
+                                        val newSelection = filterCategorySelection.selectedCategories.toMutableSet()
+                                        if (lowercasedCategory in newSelection) {
+                                            newSelection.remove(lowercasedCategory)
+                                        } else {
+                                            newSelection.add(lowercasedCategory)
+                                        }
+                                        filterCategorySelection = filterCategorySelection.copy(selectedCategories = newSelection)
+                                    }
+                                )
+                            }
+                            if (rowCategories.size < 4) {
+                                for (i in rowCategories.size until 4) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -195,6 +281,12 @@ fun ExpandableListingCard(
     displayMode: DisplayMode
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+
+    // Animate arrow rotation
+    val rotationDegree by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "ArrowRotation"
+    )
 
     val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
         if (listing.coord.size == 2) {
@@ -214,7 +306,6 @@ fun ExpandableListingCard(
                     }
                 }
                 DisplayMode.WALK_TIME -> {
-                    // Average walking speed: ~1.4 meters per second (or 5 km/h)
                     val walkingSpeedMetersPerSecond = 1.4
                     val timeInSeconds = distanceInMeters / walkingSpeedMetersPerSecond
                     val timeInMinutes = (timeInSeconds / 60).toInt()
@@ -245,29 +336,33 @@ fun ExpandableListingCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween // Keeps title left, and the rest right
             ) {
                 Text(
                     text = listing.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f, fill = false) // Title takes minimal space, stays left
                 )
-                // New Row to hold the icon and the distance/walk time text
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End // Pushes content within this row to the end
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.baseline_directions_walk_24), // Use the R class here
+                        painter = painterResource(id = R.drawable.baseline_directions_walk_24),
                         contentDescription = "Distance or Walk Time",
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = formattedDistanceOrTime, fontSize = 16.sp)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = { isExpanded = !isExpanded }) {
-                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Expand")
+                    // No separate Spacer needed here as IconButton is next in line
+                    IconButton(onClick = { isExpanded = !isExpanded }) {
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            modifier = Modifier.rotate(rotationDegree) // Apply the animated rotation
+                        )
+                    }
                 }
             }
             Row(
@@ -283,7 +378,7 @@ fun ExpandableListingCard(
             }
             if (isExpanded) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = " ${listing.description}", fontSize = 14.sp)
+                Text(text = " ${listing.subtitle}", fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

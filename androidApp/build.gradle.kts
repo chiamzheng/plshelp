@@ -4,7 +4,13 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.googleServices)
 }
-
+repositories {
+    google()       // For Google's Android artifacts
+    mavenCentral() // For most other common libraries, including kotlinx-io
+    maven("https://api.mapbox.com/downloads/v2/releases/maven") // for mapbox import
+    // If you have any other custom repositories (e.g., from MapCompose-mp documentation),
+    // you would add them here as well.
+}
 android {
     namespace = "com.example.plshelp.android"
     compileSdk = 35
@@ -54,5 +60,7 @@ dependencies {
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.androidx.foundation.android)
     implementation(libs.coroutinesPlayServices)
+    implementation("com.mapbox.maps:android:11.12.2")
+    implementation("com.mapbox.extension:maps-compose:11.12.2")// Compose integration for Mapbox
     debugImplementation(libs.compose.ui.tooling)
 }
