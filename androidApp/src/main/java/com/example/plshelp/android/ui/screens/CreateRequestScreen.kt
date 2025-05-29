@@ -48,8 +48,6 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 
 // Needed for pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.isOutOfBounds
 import androidx.compose.ui.input.pointer.pointerInput
 
 

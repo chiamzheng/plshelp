@@ -17,14 +17,14 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.plshelp.android.data.LocationManager
+//import com.example.plshelp.android.data.LocationManager
 import com.example.plshelp.android.data.LocationService
 import com.example.plshelp.android.ui.navigation.BottomNavItem
 import com.example.plshelp.android.ui.screens.CreateRequestScreen
 import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
 import com.example.plshelp.android.ui.screens.ListingDetailScreen
 import com.example.plshelp.android.ui.screens.ListingsScreen
-import com.example.plshelp.android.ui.screens.LocationScreen
+//import com.example.plshelp.android.ui.screens.LocationScreen // Keep this import if LocationScreen still exists but is not navigated to directly
 import com.example.plshelp.android.ui.screens.LoginScreen
 import com.example.plshelp.android.ui.screens.MyApplicationTheme
 import com.example.plshelp.android.ui.screens.ProfileScreen
@@ -78,20 +78,10 @@ class MainActivity : ComponentActivity() {
                     ) { paddingValues ->
                         NavHost(
                             navController = navController,
-                            startDestination = BottomNavItem.Location.route,
+                            startDestination = BottomNavItem.Listings.route, // Changed startDestination
                             Modifier.padding(paddingValues)
                         ) {
-                            composable(BottomNavItem.Location.route) {
-                                LocationScreen(
-                                    onCheckLocation = { updateText ->
-                                        LocationManager.checkUserLocation(context) { result ->
-                                            updateText(result)
-                                        }
-                                    },
-                                    paddingValues = paddingValues,
-                                    modifier = Modifier.padding(paddingValues)
-                                )
-                            }
+                            // Removed LocationScreen composable
                             composable(BottomNavItem.Listings.route) {
                                 ListingsScreen(onNavigateToDetail = { listingId ->
                                     navController.navigate("listingDetail/$listingId")
@@ -205,7 +195,7 @@ class MainActivity : ComponentActivity() {
                 // Navigate after auth if triggered
                 if (navigateAfterAuth) {
                     LaunchedEffect(Unit) {
-                        navController.navigate(BottomNavItem.Location.route) {
+                        navController.navigate(BottomNavItem.Listings.route) { // Changed route here too
                             popUpTo(0)
                         }
                         navigateAfterAuth = false // Reset trigger
@@ -220,7 +210,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun BottomNavigationBar(navController: androidx.navigation.NavController) {
         val items = listOf(
-            BottomNavItem.Location,
+            // Removed BottomNavItem.Location
             BottomNavItem.Listings,
             BottomNavItem.CreateRequest,
             BottomNavItem.Profile
