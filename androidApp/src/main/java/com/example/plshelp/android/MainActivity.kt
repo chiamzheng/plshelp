@@ -17,14 +17,12 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-//import com.example.plshelp.android.data.LocationManager
 import com.example.plshelp.android.data.LocationService
 import com.example.plshelp.android.ui.navigation.BottomNavItem
 import com.example.plshelp.android.ui.screens.CreateRequestScreen
 import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
 import com.example.plshelp.android.ui.screens.ListingDetailScreen
 import com.example.plshelp.android.ui.screens.ListingsScreen
-//import com.example.plshelp.android.ui.screens.LocationScreen // Keep this import if LocationScreen still exists but is not navigated to directly
 import com.example.plshelp.android.ui.screens.LoginScreen
 import com.example.plshelp.android.ui.screens.MyApplicationTheme
 import com.example.plshelp.android.ui.screens.ProfileScreen
@@ -32,7 +30,11 @@ import com.example.plshelp.android.ui.screens.RegistrationScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import android.util.Log
+import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import Listing
 
 class MainActivity : ComponentActivity() {
 
@@ -67,7 +69,6 @@ class MainActivity : ComponentActivity() {
                 var showForgotPassword by remember { mutableStateOf(false) }
                 var forgotPasswordErrorMessage by remember { mutableStateOf<String?>(null) }
 
-                // State to trigger navigation after successful login/registration
                 var navigateAfterAuth by remember { mutableStateOf(false) }
 
                 if (isLoggedIn) {
@@ -78,19 +79,46 @@ class MainActivity : ComponentActivity() {
                     ) { paddingValues ->
                         NavHost(
                             navController = navController,
-                            startDestination = BottomNavItem.Listings.route, // Changed startDestination
-                            Modifier.padding(paddingValues)
+                            startDestination = BottomNavItem.Listings.route,
+                            modifier = Modifier.padding(paddingValues)
                         ) {
-                            // Removed LocationScreen composable
                             composable(BottomNavItem.Listings.route) {
-                                ListingsScreen(onNavigateToDetail = { listingId ->
-                                    navController.navigate("listingDetail/$listingId")
-                                })
+                                ListingsScreen(
+                                    // THIS IS WHERE THE 'listing' OBJECT IS RECEIVED FROM LISTINGSSCREEN
+                                    // The lambda parameter 'listing' is explicitly of type 'Listing' due to ListingsScreen's signature.
+                                    onNavigateToDetail = { listing: Listing -> // <--- EXPLICITLY TYPING 'listing' AS 'Listing' here.
+                                        // Store the entire 'Listing' object in SavedStateHandle for the next screen
+                                        navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
+
+                                        // Navigate using the 'id' property of the 'listing' object for the URL path
+                                        // The 'id' is a property of the 'Listing' object.
+                                        navController.navigate("listingDetail/${listing.id}") // <--- Error 'Unresolved reference: id' happens here.
+                                    }
+                                )
                             }
-                            composable("listingDetail/{listingId}") { backStackEntry ->
+                            composable(
+                                "listingDetail/{listingId}",
+                                arguments = listOf(
+                                    navArgument("listingId") { type = NavType.StringType }
+                                )
+                            ) { backStackEntry ->
+                                // Get the 'listingId' (String) from the navigation route arguments
                                 val listingId = backStackEntry.arguments?.getString("listingId")
+
+                                // Get the 'Listing' object (Parcelable) from SavedStateHandle
+                                val initialListing = backStackEntry.savedStateHandle.get<Listing>("listing")
+
                                 if (listingId != null) {
-                                    ListingDetailScreen(listingId = listingId)
+                                    ListingDetailScreen(
+                                        listingId = listingId,
+                                        onBackClick = { navController.popBackStack() },
+                                        initialListing = initialListing
+                                    )
+                                } else {
+                                    LaunchedEffect(Unit) {
+                                        Log.e("MainActivity", "Error: listingId was null for detail screen. Navigating back.")
+                                        navController.popBackStack()
+                                    }
                                 }
                             }
                             composable(BottomNavItem.Profile.route) {
@@ -98,7 +126,7 @@ class MainActivity : ComponentActivity() {
                                     onSignOut = {
                                         auth.signOut()
                                         isLoggedIn = false
-                                        navigateAfterAuth = true // Trigger navigation
+                                        navigateAfterAuth = true
                                     },
                                     modifier = Modifier.padding(paddingValues)
                                 )
@@ -114,13 +142,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                } else {
+                } else { // Not logged in
                     if (showRegistration) {
                         RegistrationScreen(
                             onRegisterSuccess = {
                                 showRegistration = false
-                                navigateAfterAuth = true // Trigger navigation
-                                registerErrorMessage = null //Clear error on success
+                                navigateAfterAuth = true
+                                registerErrorMessage = null
                             },
                             onRegisterFailure = { errorMessage ->
                                 registerErrorMessage = errorMessage
@@ -130,8 +158,8 @@ class MainActivity : ComponentActivity() {
                                     .addOnCompleteListener(this) { task ->
                                         if (task.isSuccessful) {
                                             showRegistration = false
-                                            navigateAfterAuth = true // Trigger navigation
-                                            registerErrorMessage = null//Clear error on success
+                                            navigateAfterAuth = true
+                                            registerErrorMessage = null
                                         } else {
                                             val exception = task.exception
                                             if (exception is FirebaseAuthException) {
@@ -143,7 +171,7 @@ class MainActivity : ComponentActivity() {
                                     }
                             },
                             onBackToLogin = { showRegistration = false },
-                            registerErrorMessage = registerErrorMessage//Pass error message
+                            registerErrorMessage = registerErrorMessage
                         )
                     } else if (showForgotPassword) {
                         ForgotPasswordScreen(
@@ -160,11 +188,11 @@ class MainActivity : ComponentActivity() {
                             },
                             forgotPasswordErrorMessage = forgotPasswordErrorMessage
                         )
-                    } else {
+                    } else { // Login Screen
                         LoginScreen(
                             onLoginSuccess = {
                                 isLoggedIn = true
-                                loginErrorMessage = null //clear error on success
+                                loginErrorMessage = null
                                 navigateAfterAuth = true
                             },
                             onLoginFailure = { errorMessage ->
@@ -176,10 +204,10 @@ class MainActivity : ComponentActivity() {
                                     .addOnCompleteListener(this) { task ->
                                         if (task.isSuccessful) {
                                             isLoggedIn = true
-                                            loginErrorMessage = null //clear error on success
+                                            loginErrorMessage = null
                                             navigateAfterAuth = true
                                         } else {
-                                            loginErrorMessage = "Invalid email or password." //Simplified error
+                                            loginErrorMessage = "Invalid email or password."
                                         }
                                     }
                             },
@@ -192,13 +220,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Navigate after auth if triggered
                 if (navigateAfterAuth) {
                     LaunchedEffect(Unit) {
-                        navController.navigate(BottomNavItem.Listings.route) { // Changed route here too
-                            popUpTo(0)
+                        navController.navigate(BottomNavItem.Listings.route) {
+                            popUpTo(0) {
+                                inclusive = true
+                            }
                         }
-                        navigateAfterAuth = false // Reset trigger
+                        navigateAfterAuth = false
                     }
                 }
             }
@@ -208,9 +237,8 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun BottomNavigationBar(navController: androidx.navigation.NavController) {
+    fun BottomNavigationBar(navController: NavController) {
         val items = listOf(
-            // Removed BottomNavItem.Location
             BottomNavItem.Listings,
             BottomNavItem.CreateRequest,
             BottomNavItem.Profile
@@ -241,7 +269,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkForegroundLocationPermission() { // Added function
+    private fun checkForegroundLocationPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             Log.d("MainActivity", "Foreground location permission already granted.")
         } else {

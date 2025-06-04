@@ -1,5 +1,6 @@
-package com.example.plshelp.android.ui.screens
+package com.example.plshelp.android.data
 
+import Listing
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -19,18 +20,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-data class Listing(
-    val id: String = "",
-    val category: String = "",
-    val coord: List<Double> = emptyList(),
-    val subtitle: String = "",
-    val description: String = "",
-    val imgURL: String? = null,
-    val ownerID: String = "",
-    val price: String = "",
-    val radius: Long = 0,
-    val title: String = ""
-)
 
 class ListingsViewModel : ViewModel() {
     private val _listings = MutableStateFlow<SnapshotStateList<Listing>>(mutableStateListOf())
@@ -97,7 +86,8 @@ class ListingsViewModel : ViewModel() {
                         ownerID = document.getString("ownerID") ?: "",
                         price = document.getString("price") ?: "",
                         radius = document.getLong("radius") ?: 0,
-                        title = document.getString("title") ?: ""
+                        title = document.getString("title") ?: "",
+                        timestamp = document.getTimestamp("timestamp")
                     )
                 }
                 _listings.value.clear()

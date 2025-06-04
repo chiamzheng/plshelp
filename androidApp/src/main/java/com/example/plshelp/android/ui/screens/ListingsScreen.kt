@@ -41,7 +41,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +60,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.location.Location
+import Listing
+import com.example.plshelp.android.data.ListingsViewModel
 
 // New enum to define the display mode
 enum class DisplayMode {
@@ -70,7 +71,7 @@ enum class DisplayMode {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
+fun ListingsScreen(onNavigateToDetail: (Listing) -> Unit) {
     val viewModel: ListingsViewModel = viewModel()
     val listings by viewModel.listings.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -275,7 +276,7 @@ fun ListingsScreen(onNavigateToDetail: (String) -> Unit) {
 @Composable
 fun ExpandableListingCard(
     listing: Listing,
-    onNavigateToDetail: (String) -> Unit,
+    onNavigateToDetail: (Listing) -> Unit,
     currentLat: Double,
     currentLon: Double,
     displayMode: DisplayMode
@@ -390,7 +391,7 @@ fun ExpandableListingCard(
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp
                     )
-                    Button(onClick = { onNavigateToDetail(listing.id) }) {
+                    Button(onClick = { onNavigateToDetail(listing) }) {
                         Text("View Details")
                     }
                 }

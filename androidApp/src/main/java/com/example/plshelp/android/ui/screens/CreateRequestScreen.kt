@@ -199,7 +199,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             "radius" to parsedRadius!!,
                             "ownerID" to user.uid,
                             "ownerName" to userName,
-                            "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                            "status" to "active"
                         )
 
                         firestore.collection("listings").add(newListing).await()
@@ -211,7 +212,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         price = ""
                         categorySelection = CategorySelection(mutableSetOf())
                         radius = ""
-                        // THIS IS THE LINE THAT WAS INCORRECTLY CHANGED
                         locationSelection = LocationSelection(LocationType.NO_LOCATION, null)
                         requestCreated = true
                         showCategoryError = false

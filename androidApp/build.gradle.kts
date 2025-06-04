@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.googleServices)
+    id("kotlin-parcelize")
 }
 repositories {
     google()       // For Google's Android artifacts
