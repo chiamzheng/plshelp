@@ -10,13 +10,20 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.example.plshelp.android.LocalUserId
+import com.example.plshelp.android.LocalUserName
 
 @Composable
 fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
-    val user = auth.currentUser
-    var userName by rememberSaveable { mutableStateOf("") }
+    val user = auth.currentUser // Still need this for re-authentication and email
+
+    // --- USE GLOBAL USER ID AND USER NAME ---
+    val currentUserId = LocalUserId.current
+    var currentUserName by LocalUserName.current // This is a mutable state, so we can update it
+    // --- END GLOBAL ---
+
     var newName by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
@@ -26,22 +33,11 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
     var showChangePasswordDialog by rememberSaveable { mutableStateOf(false) }
     var showReAuthDialog by rememberSaveable { mutableStateOf(false) }
 
-    // Function to reload user data from Firestore
-    val reloadUserData = {
-        user?.let {
-            db.collection("users").document(it.uid).get() // Use UID as document ID
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        userName = document.getString("name") ?: ""
-                    }
-                }
-        }
-    }
-
-    // Initial load
-    LaunchedEffect(Unit) {
-        reloadUserData()
-    }
+    // No longer need reloadUserData() directly, as currentUserName is already a mutable state
+    // and should be updated via LocalUserName.current if the name changes.
+    // LaunchedEffect(Unit) {
+    //     reloadUserData()
+    // }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -50,9 +46,9 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Text("Profile Screen", fontSize = 24.sp)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Name: $userName")
+        Text("Name: $currentUserName") // Use global user name
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Email: ${user?.email ?: "Email not available"}") // Get email from Auth
+        Text("Email: ${user?.email ?: "Email not available"}")
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = { showChangeNameDialog = true }) {
             Text("Change Name")
@@ -84,17 +80,19 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
             },
             confirmButton = {
                 Button(onClick = {
-                    user?.let {
-                        db.collection("users").document(it.uid).update("name", newName) // Use UID
+                    if (currentUserId.isNotEmpty()) { // Ensure we have a valid UID
+                        db.collection("users").document(currentUserId).update("name", newName)
                             .addOnSuccessListener {
-                                userName = newName
+                                currentUserName = newName // Update the global state
                                 showChangeNameDialog = false
                                 newName = ""
-                                reloadUserData()
+                                errorMessage = null // Clear any previous error
                             }
                             .addOnFailureListener { e ->
                                 errorMessage = "Failed to update name: ${e.message}"
                             }
+                    } else {
+                        errorMessage = "User not logged in."
                     }
                 }) {
                     Text("Save")
@@ -118,20 +116,25 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
                     OutlinedTextField(
                         value = newPassword,
                         onValueChange = { newPassword = it },
-                        label = { Text("New Password") }
+                        label = { Text("New Password") },
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation() // Added for password fields
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm New Password") }
+                        label = { Text("Confirm New Password") },
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation() // Added for password fields
                     )
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    if (newPassword == confirmPassword) {
+                    if (newPassword.isBlank() || confirmPassword.isBlank()) {
+                        errorMessage = "New password and confirm password cannot be empty."
+                    } else if (newPassword == confirmPassword) {
                         showReAuthDialog = true
+                        errorMessage = null // Clear error before re-auth
                     } else {
                         errorMessage = "Passwords do not match."
                     }
@@ -162,30 +165,35 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
             },
             confirmButton = {
                 Button(onClick = {
-                    val authCredential =
-                        com.google.firebase.auth.EmailAuthProvider.getCredential(user?.email ?: "", passwordToConfirm) // Use Auth email
+                    val email = user?.email
+                    if (email != null && passwordToConfirm.isNotBlank()) {
+                        val authCredential =
+                            com.google.firebase.auth.EmailAuthProvider.getCredential(email, passwordToConfirm)
 
-                    user?.reauthenticate(authCredential)
-                        ?.addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                user.updatePassword(newPassword)
-                                    .addOnCompleteListener { passwordTask ->
-                                        if (passwordTask.isSuccessful) {
-                                            errorMessage = "Password updated successfully."
-                                            showChangePasswordDialog = false
-                                            showReAuthDialog = false
-                                            newPassword = ""
-                                            confirmPassword = ""
-                                            passwordToConfirm = ""
-                                        } else {
-                                            errorMessage =
-                                                "Failed to update password: ${passwordTask.exception?.message}"
+                        user.reauthenticate(authCredential)
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    user.updatePassword(newPassword)
+                                        .addOnCompleteListener { passwordTask ->
+                                            if (passwordTask.isSuccessful) {
+                                                errorMessage = "Password updated successfully."
+                                                showChangePasswordDialog = false
+                                                showReAuthDialog = false
+                                                newPassword = ""
+                                                confirmPassword = ""
+                                                passwordToConfirm = ""
+                                            } else {
+                                                errorMessage =
+                                                    "Failed to update password: ${passwordTask.exception?.message}"
+                                            }
                                         }
-                                    }
-                            } else {
-                                errorMessage = "Re-authentication failed: ${task.exception?.message}"
+                                } else {
+                                    errorMessage = "Re-authentication failed: ${task.exception?.message}"
+                                }
                             }
-                        }
+                    } else {
+                        errorMessage = "Email or password cannot be empty for re-authentication."
+                    }
                 }) {
                     Text("Confirm")
                 }

@@ -1,10 +1,12 @@
+// app/src/main/java/com/example/plshelp/android/data/ListingsViewModel.kt
 package com.example.plshelp.android.data
 
-import Listing
+import Listing // Correct import for Listing
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider // Import for ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
@@ -14,14 +16,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import android.util.Log
 import androidx.compose.runtime.mutableLongStateOf
+import com.google.firebase.Timestamp // Import Firebase Timestamp
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-
-class ListingsViewModel : ViewModel() {
+class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private val _listings = MutableStateFlow<SnapshotStateList<Listing>>(mutableStateListOf())
     val listings: StateFlow<SnapshotStateList<Listing>> = _listings
     private val _isLoading = MutableStateFlow(false)
@@ -64,6 +66,8 @@ class ListingsViewModel : ViewModel() {
             try {
                 val snapshot = FirebaseFirestore.getInstance()
                     .collection("listings")
+                    .whereEqualTo("status", "active") // <--- Filter for 'active' listings
+                    .whereNotEqualTo("ownerID", currentOwnerId) // <--- Filter out current user's listings
                     .get()
                     .await()
 
@@ -84,10 +88,12 @@ class ListingsViewModel : ViewModel() {
                         description = document.getString("description") ?: "",
                         imgURL = document.getString("imgURL"),
                         ownerID = document.getString("ownerID") ?: "",
+                        ownerName = document.getString("ownerName") ?: "", // Make sure ownerName is retrieved
                         price = document.getString("price") ?: "",
                         radius = document.getLong("radius") ?: 0,
                         title = document.getString("title") ?: "",
-                        timestamp = document.getTimestamp("timestamp")
+                        timestamp = document.getTimestamp("timestamp"),
+                        status = document.getString("status") ?: "active" // <--- Retrieve status
                     )
                 }
                 _listings.value.clear()
@@ -101,6 +107,17 @@ class ListingsViewModel : ViewModel() {
                 _isLoading.value = false
                 // Handle error
             }
+        }
+    }
+
+    // Factory to create ListingsViewModel with currentOwnerId
+    class Factory(private val currentOwnerId: String) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(ListingsViewModel::class.java)) {
+                return ListingsViewModel(currentOwnerId) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
 }

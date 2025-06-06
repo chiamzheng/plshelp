@@ -36,7 +36,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,23 +44,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate // Import for rotation
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.plshelp.android.R
 import com.example.plshelp.android.data.LocationManager
-import com.example.plshelp.android.ui.components.CategoryChip // Ensure this import is correct
+import com.example.plshelp.android.ui.components.CategoryChip
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.location.Location
 import Listing
-import com.example.plshelp.android.data.ListingsViewModel
+import androidx.compose.runtime.snapshots.SnapshotStateList
 
 // New enum to define the display mode
 enum class DisplayMode {
@@ -71,11 +69,16 @@ enum class DisplayMode {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListingsScreen(onNavigateToDetail: (Listing) -> Unit) {
-    val viewModel: ListingsViewModel = viewModel()
-    val listings by viewModel.listings.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val lastFetchTime by viewModel.lastFetchTimeState
+fun ListingsScreen(
+    // <--- THESE ARE THE PARAMETERS PASSED FROM MainActivity
+    listings: SnapshotStateList<Listing>, // The list of listings to display
+    isLoading: Boolean,                   // Boolean indicating if data is currently loading
+    lastFetchTime: Long,                  // Timestamp of the last data refresh
+    onRefresh: () -> Unit,                // Callback to trigger a data refresh
+    // --- END PASSED PARAMETERS ---
+
+    onNavigateToDetail: (Listing) -> Unit // Your existing navigation callback
+) {
     val context = LocalContext.current
 
     val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
@@ -86,16 +89,19 @@ fun ListingsScreen(onNavigateToDetail: (Listing) -> Unit) {
     val sheetState = rememberModalBottomSheetState()
 
     // State for selected filter categories
+    // Ensure categorySelectionSaver is correctly imported or defined above/in a shared file
     var filterCategorySelection by rememberSaveable(stateSaver = categorySelectionSaver) {
         mutableStateOf(CategorySelection(mutableSetOf()))
     }
 
-    // Predefined categories for filtering - UPDATED WITH FULL LIST
-    val availableFilterCategories = listOf(
-        "Urgent", "Helper", "Delivery", "Free", "Others",
-        "Invite", "Trade", "Advice", "Event", "Study",
-        "Borrow", "Food"
-    )
+    // Predefined categories for filtering
+    val availableFilterCategories = remember { // Use remember to avoid recreating on every recomposition
+        listOf(
+            "Urgent", "Helper", "Delivery", "Free", "Others",
+            "Invite", "Trade", "Advice", "Event", "Study",
+            "Borrow", "Food"
+        )
+    }
 
     LaunchedEffect(Unit) {
         LocationManager.checkUserLocation(context) { result ->
@@ -148,7 +154,8 @@ fun ListingsScreen(onNavigateToDetail: (Listing) -> Unit) {
                             )
                         }
 
-                        IconButton(onClick = { viewModel.refreshListings() }) {
+                        // Call the onRefresh callback passed from MainActivity
+                        IconButton(onClick = { onRefresh() }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                         }
                     }
@@ -290,11 +297,12 @@ fun ExpandableListingCard(
     )
 
     val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
-        if (listing.coord.size == 2) {
+        // Ensure listing.coord is not null and has at least two elements
+        if (listing.coord.size >= 2) {
             val listingLat = listing.coord[0]
             val listingLon = listing.coord[1]
             val results = FloatArray(1)
-            Location.distanceBetween(currentLat, currentLon, listingLat, listingLon, results)
+            Location.distanceBetween(currentLat, currentLon, listingLat.toDouble(), listingLon.toDouble(), results) // Ensure conversion to Double
             val distanceInMeters = results[0]
 
             when (displayMode) {
@@ -307,7 +315,7 @@ fun ExpandableListingCard(
                     }
                 }
                 DisplayMode.WALK_TIME -> {
-                    val walkingSpeedMetersPerSecond = 1.4
+                    val walkingSpeedMetersPerSecond = 1.4 // Approx 5 km/h
                     val timeInSeconds = distanceInMeters / walkingSpeedMetersPerSecond
                     val timeInMinutes = (timeInSeconds / 60).toInt()
 
@@ -323,7 +331,7 @@ fun ExpandableListingCard(
                 }
             }
         } else {
-            "N/A"
+            "N/A" // Handle cases where coordinates might be missing or malformed
         }
     }
 
@@ -337,17 +345,17 @@ fun ExpandableListingCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween // Keeps title left, and the rest right
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = listing.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
-                    modifier = Modifier.weight(1f, fill = false) // Title takes minimal space, stays left
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End // Pushes content within this row to the end
+                    horizontalArrangement = Arrangement.End
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.baseline_directions_walk_24),
@@ -356,12 +364,11 @@ fun ExpandableListingCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = formattedDistanceOrTime, fontSize = 16.sp)
-                    // No separate Spacer needed here as IconButton is next in line
                     IconButton(onClick = { isExpanded = !isExpanded }) {
                         Icon(
                             Icons.Filled.ArrowDropDown,
                             contentDescription = if (isExpanded) "Collapse" else "Expand",
-                            modifier = Modifier.rotate(rotationDegree) // Apply the animated rotation
+                            modifier = Modifier.rotate(rotationDegree)
                         )
                     }
                 }

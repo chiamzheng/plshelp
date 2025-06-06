@@ -108,7 +108,6 @@ fun ListingDetailScreen(
     // We remove Scaffold's topBar and manage padding manually within the content.
     // The padding values from Scaffold are still useful if you want to reuse them.
     Scaffold(
-        // topBar = { ... removed ... }
     ) { paddingValuesFromScaffold -> // Rename to avoid confusion with internal padding
         Box(
             modifier = Modifier

@@ -24,13 +24,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.lang.Exception
 import com.example.plshelp.android.ui.components.CategoryChip
+import com.example.plshelp.android.LocalUserId
+import com.example.plshelp.android.LocalUserName
 
 // Mapbox Imports
 import com.mapbox.maps.CameraOptions
@@ -78,9 +79,13 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var radius by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
     val scope = rememberCoroutineScope()
-    val user = auth.currentUser!!
+
+    // --- CONSUME GLOBAL VARIABLES HERE ---
+    val currentUserId = LocalUserId.current // Get the global UID
+    val currentUserName = LocalUserName.current.value // Get the global UserName
+    // --- END GLOBAL VARIABLES ---
+
     var isCreating by rememberSaveable { mutableStateOf(false) }
     var requestCreated by rememberSaveable { mutableStateOf(false) }
     var showCategoryError by rememberSaveable { mutableStateOf(false) }
@@ -179,12 +184,14 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         showCategoryError = categorySelection.selectedCategories.isEmpty()
 
         // Check if there are any errors before proceeding to write to the database
-        if (!titleError && !subtitleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError) {
+        // Also ensure currentUserId is not empty before proceeding
+        if (!titleError && !subtitleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && currentUserId.isNotEmpty()) {
             isCreating = true
             scope.launch {
                 try {
-                    val userDocument = firestore.collection("users").document(user.uid).get().await()
-                    val userName = userDocument.getString("name") ?: "Anonymous"
+                    // REMOVED: No need to fetch userDocument again for userName if it's already global
+                    // val userDocument = firestore.collection("users").document(user.uid).get().await()
+                    // val userName = userDocument.getString("name") ?: "Anonymous"
 
                     val currentCoordinates = locationSelection.coordinates
 
@@ -197,8 +204,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             "category" to categorySelection.selectedCategories.toList(),
                             "coord" to currentCoordinates,
                             "radius" to parsedRadius!!,
-                            "ownerID" to user.uid,
-                            "ownerName" to userName,
+                            "ownerID" to currentUserId, // --- USE GLOBAL UID ---
+                            "ownerName" to currentUserName, // --- USE GLOBAL USERNAME ---
                             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                             "status" to "active"
                         )
@@ -227,6 +234,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     isCreating = false
                 }
             }
+        } else if (currentUserId.isEmpty()) { // Add specific error for missing user ID
+            errorMessage = "User not logged in. Please log in to create a request."
         }
     }
 
@@ -506,6 +515,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     }
 }
 
+// getCurrentLocation, locationSelectionSaver, and categorySelectionSaver functions remain the same
 fun getCurrentLocation(context: android.content.Context, onLocationResult: (Double, Double) -> Unit) {
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     if (ContextCompat.checkSelfPermission(

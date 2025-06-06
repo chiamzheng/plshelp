@@ -35,6 +35,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import Listing
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.plshelp.android.data.ListingsViewModel
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.tasks.await
 
 class MainActivity : ComponentActivity() {
 
@@ -48,6 +52,7 @@ class MainActivity : ComponentActivity() {
         }
 
     private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +62,7 @@ class MainActivity : ComponentActivity() {
         ContextCompat.startForegroundService(this, serviceIntent)
 
         auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
 
         setContent {
             MyApplicationTheme {
@@ -70,166 +76,187 @@ class MainActivity : ComponentActivity() {
                 var forgotPasswordErrorMessage by remember { mutableStateOf<String?>(null) }
 
                 var navigateAfterAuth by remember { mutableStateOf(false) }
+                val currentUserId = auth.currentUser?.uid ?: ""
+                val globalUserNameState = remember { mutableStateOf("") } // This MutableState will hold the globally available username
 
-                if (isLoggedIn) {
-                    Scaffold(
-                        bottomBar = {
-                            BottomNavigationBar(navController = navController)
+                // Fetch username from Firestore once when userId becomes available (i.e., on login)
+                LaunchedEffect(currentUserId) {
+                    if (currentUserId.isNotEmpty()) {
+                        try {
+                            val userDocument = db.collection("users").document(currentUserId).get().await()
+                            globalUserNameState.value = userDocument.getString("name") ?: "Anonymous"
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error fetching username: ${e.message}")
+                            globalUserNameState.value = "Anonymous" // Fallback
                         }
-                    ) { paddingValues ->
-                        NavHost(
-                            navController = navController,
-                            startDestination = BottomNavItem.Listings.route,
-                            modifier = Modifier.padding(paddingValues)
-                        ) {
-                            composable(BottomNavItem.Listings.route) {
-                                ListingsScreen(
-                                    // THIS IS WHERE THE 'listing' OBJECT IS RECEIVED FROM LISTINGSSCREEN
-                                    // The lambda parameter 'listing' is explicitly of type 'Listing' due to ListingsScreen's signature.
-                                    onNavigateToDetail = { listing: Listing -> // <--- EXPLICITLY TYPING 'listing' AS 'Listing' here.
-                                        // Store the entire 'Listing' object in SavedStateHandle for the next screen
-                                        navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
+                    } else {
+                        globalUserNameState.value = "" // Reset if no user logged in
+                    }
+                }
 
-                                        // Navigate using the 'id' property of the 'listing' object for the URL path
-                                        // The 'id' is a property of the 'Listing' object.
-                                        navController.navigate("listingDetail/${listing.id}") // <--- Error 'Unresolved reference: id' happens here.
-                                    }
-                                )
+                // <--- PROVIDE BOTH USER ID AND USER NAME STATE HERE
+                CompositionLocalProvider(
+                    LocalUserId provides currentUserId,
+                    LocalUserName provides globalUserNameState // Provide the MutableState object
+                ){
+                    if (isLoggedIn) {
+                        Scaffold(
+                            bottomBar = {
+                                BottomNavigationBar(navController = navController)
                             }
-                            composable(
-                                "listingDetail/{listingId}",
-                                arguments = listOf(
-                                    navArgument("listingId") { type = NavType.StringType }
-                                )
-                            ) { backStackEntry ->
-                                // Get the 'listingId' (String) from the navigation route arguments
-                                val listingId = backStackEntry.arguments?.getString("listingId")
-
-                                // Get the 'Listing' object (Parcelable) from SavedStateHandle
-                                val initialListing = backStackEntry.savedStateHandle.get<Listing>("listing")
-
-                                if (listingId != null) {
-                                    ListingDetailScreen(
-                                        listingId = listingId,
-                                        onBackClick = { navController.popBackStack() },
-                                        initialListing = initialListing
+                        ) { paddingValues ->
+                            NavHost(
+                                navController = navController,
+                                startDestination = BottomNavItem.Listings.route,
+                                modifier = Modifier.padding(paddingValues)
+                            ) {
+                                composable(BottomNavItem.Listings.route) {
+                                    val listingsViewModel: ListingsViewModel = viewModel(
+                                        factory = ListingsViewModel.Factory(currentUserId)
                                     )
-                                } else {
-                                    LaunchedEffect(Unit) {
-                                        Log.e("MainActivity", "Error: listingId was null for detail screen. Navigating back.")
-                                        navController.popBackStack()
+                                    ListingsScreen(
+                                        listings = listingsViewModel.listings.collectAsState().value,
+                                        isLoading = listingsViewModel.isLoading.collectAsState().value,
+                                        lastFetchTime = listingsViewModel.lastFetchTimeState.value,
+                                        onRefresh = { listingsViewModel.refreshListings() },
+                                        onNavigateToDetail = { listing ->
+                                            navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
+                                            navController.navigate("listingDetail/${listing.id}")
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "listingDetail/{listingId}",
+                                    arguments = listOf(
+                                        navArgument("listingId") { type = NavType.StringType }
+                                    )
+                                ) { backStackEntry ->
+                                    val listingId = backStackEntry.arguments?.getString("listingId")
+                                    val initialListing = backStackEntry.savedStateHandle.get<Listing>("listing")
+
+                                    if (listingId != null) {
+                                        ListingDetailScreen(
+                                            listingId = listingId,
+                                            onBackClick = { navController.popBackStack() },
+                                            initialListing = initialListing
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            Log.e("MainActivity", "Error: listingId was null for detail screen. Navigating back.")
+                                            navController.popBackStack()
+                                        }
                                     }
                                 }
-                            }
-                            composable(BottomNavItem.Profile.route) {
-                                ProfileScreen(
-                                    onSignOut = {
-                                        auth.signOut()
-                                        isLoggedIn = false
-                                        navigateAfterAuth = true
-                                    },
-                                    modifier = Modifier.padding(paddingValues)
-                                )
-                            }
-                            composable(BottomNavItem.CreateRequest.route) {
-                                CreateRequestScreen(onNavigateToListings = {
-                                    navController.navigate(BottomNavItem.Listings.route) {
-                                        popUpTo(BottomNavItem.Listings.route) {
-                                            inclusive = true
-                                        }
-                                    }
-                                })
-                            }
-                        }
-                    }
-                } else { // Not logged in
-                    if (showRegistration) {
-                        RegistrationScreen(
-                            onRegisterSuccess = {
-                                showRegistration = false
-                                navigateAfterAuth = true
-                                registerErrorMessage = null
-                            },
-                            onRegisterFailure = { errorMessage ->
-                                registerErrorMessage = errorMessage
-                            },
-                            onRegister = { email, password ->
-                                auth.createUserWithEmailAndPassword(email, password)
-                                    .addOnCompleteListener(this) { task ->
-                                        if (task.isSuccessful) {
-                                            showRegistration = false
+                                composable(BottomNavItem.Profile.route) {
+                                    ProfileScreen(
+                                        onSignOut = {
+                                            auth.signOut()
+                                            isLoggedIn = false
                                             navigateAfterAuth = true
-                                            registerErrorMessage = null
-                                        } else {
-                                            val exception = task.exception
-                                            if (exception is FirebaseAuthException) {
-                                                registerErrorMessage = exception.message
-                                            } else {
-                                                registerErrorMessage = "Registration failed."
+                                        },
+                                        modifier = Modifier.padding(paddingValues)
+                                    )
+                                }
+                                composable(BottomNavItem.CreateRequest.route) {
+                                    CreateRequestScreen(onNavigateToListings = {
+                                        navController.navigate(BottomNavItem.Listings.route) {
+                                            popUpTo(BottomNavItem.Listings.route) {
+                                                inclusive = true
                                             }
                                         }
-                                    }
-                            },
-                            onBackToLogin = { showRegistration = false },
-                            registerErrorMessage = registerErrorMessage
-                        )
-                    } else if (showForgotPassword) {
-                        ForgotPasswordScreen(
-                            onResetSuccess = {
-                                showForgotPassword = false
-                                forgotPasswordErrorMessage = null
-                            },
-                            onResetFailure = { errorMessage ->
-                                forgotPasswordErrorMessage = errorMessage
-                            },
-                            onBackToLogin = {
-                                showForgotPassword = false
-                                forgotPasswordErrorMessage = null
-                            },
-                            forgotPasswordErrorMessage = forgotPasswordErrorMessage
-                        )
-                    } else { // Login Screen
-                        LoginScreen(
-                            onLoginSuccess = {
-                                isLoggedIn = true
-                                loginErrorMessage = null
-                                navigateAfterAuth = true
-                            },
-                            onLoginFailure = { errorMessage ->
-                                loginErrorMessage = errorMessage
-                            },
-                            onRegisterClick = { showRegistration = true },
-                            onLogin = { email, password ->
-                                auth.signInWithEmailAndPassword(email, password)
-                                    .addOnCompleteListener(this) { task ->
-                                        if (task.isSuccessful) {
-                                            isLoggedIn = true
-                                            loginErrorMessage = null
-                                            navigateAfterAuth = true
-                                        } else {
-                                            loginErrorMessage = "Invalid email or password."
-                                        }
-                                    }
-                            },
-                            loginErrorMessage = loginErrorMessage,
-                            onForgotPasswordClick = {
-                                showForgotPassword = true
-                                forgotPasswordErrorMessage = null
-                            }
-                        )
-                    }
-                }
-
-                if (navigateAfterAuth) {
-                    LaunchedEffect(Unit) {
-                        navController.navigate(BottomNavItem.Listings.route) {
-                            popUpTo(0) {
-                                inclusive = true
+                                    })
+                                }
                             }
                         }
-                        navigateAfterAuth = false
+                    } else { // Not logged in
+                        if (showRegistration) {
+                            RegistrationScreen(
+                                onRegisterSuccess = {
+                                    showRegistration = false
+                                    navigateAfterAuth = true
+                                    registerErrorMessage = null
+                                },
+                                onRegisterFailure = { errorMessage ->
+                                    registerErrorMessage = errorMessage
+                                },
+                                onRegister = { email, password ->
+                                    auth.createUserWithEmailAndPassword(email, password)
+                                        .addOnCompleteListener(this) { task ->
+                                            if (task.isSuccessful) {
+                                                showRegistration = false
+                                                navigateAfterAuth = true
+                                                registerErrorMessage = null
+                                            } else {
+                                                val exception = task.exception
+                                                if (exception is FirebaseAuthException) {
+                                                    registerErrorMessage = exception.message
+                                                } else {
+                                                    registerErrorMessage = "Registration failed."
+                                                }
+                                            }
+                                        }
+                                },
+                                onBackToLogin = { showRegistration = false },
+                                registerErrorMessage = registerErrorMessage
+                            )
+                        } else if (showForgotPassword) {
+                            ForgotPasswordScreen(
+                                onResetSuccess = {
+                                    showForgotPassword = false
+                                    forgotPasswordErrorMessage = null
+                                },
+                                onResetFailure = { errorMessage ->
+                                    forgotPasswordErrorMessage = errorMessage
+                                },
+                                onBackToLogin = {
+                                    showForgotPassword = false
+                                    forgotPasswordErrorMessage = null
+                                },
+                                forgotPasswordErrorMessage = forgotPasswordErrorMessage
+                            )
+                        } else { // Login Screen
+                            LoginScreen(
+                                onLoginSuccess = {
+                                    isLoggedIn = true
+                                    loginErrorMessage = null
+                                    navigateAfterAuth = true
+                                },
+                                onLoginFailure = { errorMessage ->
+                                    loginErrorMessage = errorMessage
+                                },
+                                onRegisterClick = { showRegistration = true },
+                                onLogin = { email, password ->
+                                    auth.signInWithEmailAndPassword(email, password)
+                                        .addOnCompleteListener(this) { task ->
+                                            if (task.isSuccessful) {
+                                                isLoggedIn = true
+                                                loginErrorMessage = null
+                                                navigateAfterAuth = true
+                                            } else {
+                                                loginErrorMessage = "Invalid email or password."
+                                            }
+                                        }
+                                },
+                                loginErrorMessage = loginErrorMessage,
+                                onForgotPasswordClick = {
+                                    showForgotPassword = true
+                                    forgotPasswordErrorMessage = null
+                                }
+                            )
+                        }
                     }
-                }
+
+                    if (navigateAfterAuth) {
+                        LaunchedEffect(Unit) {
+                            navController.navigate(BottomNavItem.Listings.route) {
+                                popUpTo(0) {
+                                    inclusive = true
+                                }
+                            }
+                            navigateAfterAuth = false
+                        }
+                    }
+                } // <--- END OF COMPOSITIONLOCALPROVIDER
             }
         }
 
