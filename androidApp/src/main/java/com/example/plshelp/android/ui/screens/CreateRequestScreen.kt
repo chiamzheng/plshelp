@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.* // This import is crucial for remember, mutableStateOf, derivedStateOf
 import androidx.compose.runtime.saveable.mapSaver
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveable // This import is crucial for rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,7 +29,7 @@ import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.lang.Exception
-import com.example.plshelp.android.ui.components.CategoryChip
+import com.example.plshelp.android.ui.components.CategoryChip // Ensure this import is correct
 import com.example.plshelp.android.LocalUserId
 import com.example.plshelp.android.LocalUserName
 
@@ -50,6 +50,9 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 // Needed for pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+
+// Import for ActivityResultLauncher for the LocationSelectionBlock
+import androidx.activity.result.ActivityResultLauncher
 
 
 // Data class for Location Selection
@@ -90,37 +93,23 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var requestCreated by rememberSaveable { mutableStateOf(false) }
     var showCategoryError by rememberSaveable { mutableStateOf(false) }
 
-    // Location Selection State
+    // --- LOCATION SELECTION STATES ---
     var locationSelection by rememberSaveable(stateSaver = locationSelectionSaver) {
         mutableStateOf(LocationSelection(LocationType.NO_LOCATION, null))
     }
-
-    // Mapbox Map State
-    val singaporePoint = Point.fromLngLat(103.8198, 1.3521)
-    val mapViewportState = rememberMapViewportState {
-        setCameraOptions {
-            center(singaporePoint)
-            zoom(10.0) // Initial zoom level
-        }
+    var deliveryLocationSelection by rememberSaveable(stateSaver = locationSelectionSaver) {
+        mutableStateOf(LocationSelection(LocationType.NO_LOCATION, null))
     }
-
-    // Effect to update map camera when locationSelection.coordinates changes
-    LaunchedEffect(locationSelection.coordinates) {
-        locationSelection.coordinates?.let { geoPoint ->
-            val point = Point.fromLngLat(geoPoint.longitude, geoPoint.latitude)
-            mapViewportState.flyTo(
-                CameraOptions.Builder()
-                    .center(point)
-                    .zoom(14.0) // Zoom in when a location is set
-                    .build()
-            )
-        }
-    }
-
-    // Category selection state
+    // Category selection state (THIS IS THE ONE YOU WERE ASKING ABOUT)
     var categorySelection by rememberSaveable(stateSaver = categorySelectionSaver) {
         mutableStateOf(CategorySelection(mutableSetOf()))
     }
+
+    val isDeliverySelected = remember {
+        derivedStateOf { categorySelection.selectedCategories.contains("delivery") }
+    }
+    // --- END LOCATION SELECTION STATES ---
+
 
     // Track which fields have errors.
     var titleError by rememberSaveable { mutableStateOf(false) }
@@ -129,6 +118,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var priceError by rememberSaveable { mutableStateOf(false) }
     var radiusError by rememberSaveable { mutableStateOf(false) }
     var locationError by rememberSaveable { mutableStateOf(false) }
+    var deliveryLocationError by rememberSaveable { mutableStateOf(false) }
 
     val firestore = FirebaseFirestore.getInstance()
 
@@ -142,77 +132,56 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            getCurrentLocation(context) { lat, lon ->
-                locationSelection = LocationSelection(LocationType.CURRENT_LOCATION, GeoPoint(lat, lon))
-                locationError = false
-            }
+            Log.d("CreateRequestScreen", "Location permission granted after request.")
         } else {
-            errorMessage = "Location permission denied. Please select a location manually on the map."
-            locationSelection = LocationSelection(LocationType.NO_LOCATION, null)
-            locationError = true
-        }
-    }
-
-    // Function to get current location, triggered by button click
-    val getCurrentLocationOnClick = {
-        if (ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            getCurrentLocation(context) { lat, lon ->
-                locationSelection = LocationSelection(LocationType.CURRENT_LOCATION, GeoPoint(lat, lon))
-                locationError = false
-            }
-        } else {
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            errorMessage = "Location permission denied. Please select locations manually on the map if needed."
         }
     }
 
     val createListing: () -> Unit = {
-        // Update error states based on current input
         titleError = title.isBlank()
         subtitleError = subtitle.isBlank()
         descriptionError = description.isBlank()
         priceError = price.isBlank()
         radiusError = radius.isBlank()
-        locationError = locationSelection.coordinates == null
+        showCategoryError = categorySelection.selectedCategories.isEmpty()
 
         val parsedRadius = radius.toLongOrNull()
         radiusError = radius.isBlank() || parsedRadius == null || parsedRadius <= 0
 
-        showCategoryError = categorySelection.selectedCategories.isEmpty()
+        locationError = locationSelection.coordinates == null
 
-        // Check if there are any errors before proceeding to write to the database
-        // Also ensure currentUserId is not empty before proceeding
-        if (!titleError && !subtitleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && currentUserId.isNotEmpty()) {
+        if (isDeliverySelected.value) {
+            deliveryLocationError = deliveryLocationSelection.coordinates == null
+        } else {
+            deliveryLocationError = false
+        }
+
+        if (!titleError && !subtitleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && !deliveryLocationError && currentUserId.isNotEmpty()) {
             isCreating = true
             scope.launch {
                 try {
-                    // REMOVED: No need to fetch userDocument again for userName if it's already global
-                    // val userDocument = firestore.collection("users").document(user.uid).get().await()
-                    // val userName = userDocument.getString("name") ?: "Anonymous"
+                    val primaryCoordinates = locationSelection.coordinates
+                    val deliveryCoordinates = if (isDeliverySelected.value) deliveryLocationSelection.coordinates else null
 
-                    val currentCoordinates = locationSelection.coordinates
-
-                    if (currentCoordinates != null) {
+                    if (primaryCoordinates != null && (!isDeliverySelected.value || deliveryCoordinates != null)) {
                         val newListing = hashMapOf(
                             "title" to title,
                             "subtitle" to subtitle,
                             "description" to description,
                             "price" to price,
                             "category" to categorySelection.selectedCategories.toList(),
-                            "coord" to currentCoordinates,
+                            "coord" to primaryCoordinates,
+                            "deliveryCoord" to deliveryCoordinates,
                             "radius" to parsedRadius!!,
-                            "ownerID" to currentUserId, // --- USE GLOBAL UID ---
-                            "ownerName" to currentUserName, // --- USE GLOBAL USERNAME ---
+                            "ownerID" to currentUserId,
+                            "ownerName" to currentUserName,
                             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                             "status" to "active"
                         )
 
                         firestore.collection("listings").add(newListing).await()
 
-                        // Reset form and show success message
                         title = ""
                         subtitle = ""
                         description = ""
@@ -220,12 +189,20 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         categorySelection = CategorySelection(mutableSetOf())
                         radius = ""
                         locationSelection = LocationSelection(LocationType.NO_LOCATION, null)
+                        deliveryLocationSelection = LocationSelection(LocationType.NO_LOCATION, null)
                         requestCreated = true
                         showCategoryError = false
                         errorMessage = null
+                        titleError = false
+                        subtitleError = false
+                        descriptionError = false
+                        priceError = false
+                        radiusError = false
+                        locationError = false
+                        deliveryLocationError = false
                     } else {
-                        Log.e("CreateRequestScreen", "Coordinates are null after validation!")
-                        errorMessage = "Location is required. Please select a location on the map or use current location."
+                        Log.e("CreateRequestScreen", "Missing coordinates after validation!")
+                        errorMessage = "Please ensure all required locations are selected."
                     }
                 } catch (e: Exception) {
                     errorMessage = "Failed to create request: ${e.localizedMessage}"
@@ -234,12 +211,13 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     isCreating = false
                 }
             }
-        } else if (currentUserId.isEmpty()) { // Add specific error for missing user ID
+        } else if (currentUserId.isEmpty()) {
             errorMessage = "User not logged in. Please log in to create a request."
+        } else {
+            errorMessage = "Please fill in all required fields and select categories/locations."
         }
     }
 
-    // State to control if the outer scroll is enabled
     var parentScrollEnabled by remember { mutableStateOf(true) }
     val scrollState = rememberScrollState()
 
@@ -247,7 +225,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            // Conditionally enable/disable the parent scroll
             .verticalScroll(scrollState, enabled = parentScrollEnabled),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -352,7 +329,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             onCategoryClick = { clickedCategory ->
                                 val lowercasedCategory = clickedCategory.lowercase()
                                 val newSelection = categorySelection.selectedCategories.toMutableSet()
-                                if (lowercasedCategory in newSelection) {
+                                if (newSelection.contains(lowercasedCategory)) {
                                     newSelection.remove(lowercasedCategory)
                                 } else {
                                     newSelection.add(lowercasedCategory)
@@ -371,93 +348,37 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             }
         }
 
-        Text("Location", style = MaterialTheme.typography.titleMedium)
-        if (locationError) {
-            Text("Location is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-        Button(
-            onClick = getCurrentLocationOnClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Use Current Location")
+        Spacer(modifier = Modifier.height(8.dp))
+        LocationSelectionBlock(
+            title = if (isDeliverySelected.value) "Pickup Location" else "Location",
+            locationSelection = locationSelection,
+            onLocationSelected = { newLocation ->
+                locationSelection = newLocation
+                locationError = false
+            },
+            locationError = locationError,
+            parentScrollEnabled = parentScrollEnabled,
+            onParentScrollEnabledChanged = { parentScrollEnabled = it },
+            locationPermissionLauncher = locationPermissionLauncher
+        )
+
+        if (isDeliverySelected.value) {
+            Spacer(modifier = Modifier.height(16.dp))
+            LocationSelectionBlock(
+                title = "Delivery Location",
+                locationSelection = deliveryLocationSelection,
+                onLocationSelected = { newLocation ->
+                    deliveryLocationSelection = newLocation
+                    deliveryLocationError = false
+                },
+                locationError = deliveryLocationError,
+                parentScrollEnabled = parentScrollEnabled,
+                onParentScrollEnabledChanged = { parentScrollEnabled = it },
+                locationPermissionLauncher = locationPermissionLauncher
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Mapbox Map Composable
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp),
-            elevation = CardDefaults.cardElevation(4.dp)
-        ) {
-            MapboxMap(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // Apply pointerInput directly to MapboxMap
-                    // Crucially, we will NOT consume pointer events here.
-                    // We only use this to detect a touch down/up to control parent scroll.
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(pass = PointerEventPass.Initial) // Detect touch down
-                            parentScrollEnabled = false // Disable parent scroll
-
-                            // Loop through subsequent events until all fingers are up.
-                            // We do NOT call consume() on any PointerInputChange here.
-                            do {
-                                // Just await the event, no consumption
-                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                // We don't need to do anything with event.changes.forEach here
-                                // as we are not consuming them.
-                            } while (event.changes.any { it.pressed })
-                            parentScrollEnabled = true // Re-enable parent scroll
-                        }
-                    },
-                mapViewportState = mapViewportState,
-                onMapClickListener = { point ->
-                    // This still works because it's a click listener, not a scroll gesture handler.
-                    locationSelection = LocationSelection(
-                        LocationType.SELECTED_ON_MAP,
-                        GeoPoint(point.latitude(), point.longitude())
-                    )
-                    locationError = false
-                    true
-                }
-            ) {
-                val customLocationPainter = rememberVectorPainter(
-                    image = Icons.Default.LocationOn,
-                )
-                val markerId = rememberIconImage(key = "location_marker_icon", painter = customLocationPainter)
-
-                locationSelection.coordinates?.let { geoPoint ->
-                    PointAnnotation(point = Point.fromLngLat(geoPoint.longitude, geoPoint.latitude)) {
-                        iconImage = markerId
-                    }
-                }
-            }
-        }
-
-        if (locationSelection.coordinates != null) {
-            Text(
-                text = "Selected Location: ${
-                    when (locationSelection.type) {
-                        LocationType.CURRENT_LOCATION -> "Current - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
-                        LocationType.SELECTED_ON_MAP -> "Map - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
-                        LocationType.NO_LOCATION -> "No location selected"
-                    }
-                }",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        } else {
-            Text(
-                text = "No location selected",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-        }
-
-
         OutlinedTextField(
             value = radius,
             onValueChange = {
@@ -512,10 +433,134 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium
             )
         }
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
-// getCurrentLocation, locationSelectionSaver, and categorySelectionSaver functions remain the same
+@OptIn(MapboxExperimental::class)
+@Composable
+fun LocationSelectionBlock(
+    title: String,
+    locationSelection: LocationSelection,
+    onLocationSelected: (LocationSelection) -> Unit,
+    locationError: Boolean,
+    parentScrollEnabled: Boolean,
+    onParentScrollEnabledChanged: (Boolean) -> Unit,
+    locationPermissionLauncher: ActivityResultLauncher<String>
+) {
+    val context = LocalContext.current
+
+    val singaporePoint = Point.fromLngLat(103.8198, 1.3521)
+    val mapViewportState = rememberMapViewportState {
+        setCameraOptions {
+            center(singaporePoint)
+            zoom(10.0)
+        }
+    }
+
+    LaunchedEffect(locationSelection.coordinates) {
+        locationSelection.coordinates?.let { geoPoint ->
+            val point = Point.fromLngLat(geoPoint.longitude, geoPoint.latitude)
+            mapViewportState.flyTo(
+                CameraOptions.Builder()
+                    .center(point)
+                    .zoom(14.0)
+                    .build()
+            )
+        }
+    }
+
+    val customLocationPainter = rememberVectorPainter(
+        image = Icons.Default.LocationOn,
+    )
+    val markerId = rememberIconImage(key = "${title.replace(" ", "_")}_marker_icon", painter = customLocationPainter)
+
+
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    if (locationError) {
+        Text("Location is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+    }
+    Button(
+        onClick = {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                getCurrentLocation(context) { lat, lon ->
+                    onLocationSelected(LocationSelection(LocationType.CURRENT_LOCATION, GeoPoint(lat, lon)))
+                }
+            } else {
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Use Current Location")
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(300.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        MapboxMap(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(pass = PointerEventPass.Initial)
+                        onParentScrollEnabledChanged(false)
+
+                        do {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        } while (event.changes.any { it.pressed })
+                        onParentScrollEnabledChanged(true)
+                    }
+                },
+            mapViewportState = mapViewportState,
+            onMapClickListener = { point ->
+                onLocationSelected(
+                    LocationSelection(
+                        LocationType.SELECTED_ON_MAP,
+                        GeoPoint(point.latitude(), point.longitude())
+                    )
+                )
+                true
+            }
+        ) {
+            locationSelection.coordinates?.let { geoPoint ->
+                PointAnnotation(point = Point.fromLngLat(geoPoint.longitude, geoPoint.latitude)) {
+                    iconImage = markerId
+                }
+            }
+        }
+    }
+
+    if (locationSelection.coordinates != null) {
+        Text(
+            text = "Selected Location: ${
+                when (locationSelection.type) {
+                    LocationType.CURRENT_LOCATION -> "Current - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
+                    LocationType.SELECTED_ON_MAP -> "Map - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
+                    LocationType.NO_LOCATION -> "No location selected"
+                }
+            }",
+            style = MaterialTheme.typography.bodyMedium
+        )
+    } else {
+        Text(
+            text = "No location selected",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+}
+
 fun getCurrentLocation(context: android.content.Context, onLocationResult: (Double, Double) -> Unit) {
     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     if (ContextCompat.checkSelfPermission(
@@ -561,13 +606,13 @@ val locationSelectionSaver = run {
     mapSaver(
         save = { locationSelection ->
             mapOf(
-                typeKey to locationSelection.type.name, // Save enum as string
+                typeKey to locationSelection.type.name,
                 latitudeKey to locationSelection.coordinates?.latitude,
                 longitudeKey to locationSelection.coordinates?.longitude
             )
         },
         restore = { saved ->
-            val type = LocationType.valueOf(saved[typeKey] as String) // Restore enum from string
+            val type = LocationType.valueOf(saved[typeKey] as String)
             val latitude = saved[latitudeKey] as? Double
             val longitude = saved[longitudeKey] as? Double
             val coordinates = if (latitude != null && longitude != null) {
