@@ -1,6 +1,5 @@
 package com.example.plshelp.android.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +15,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -37,30 +33,39 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import com.example.plshelp.android.ui.components.CategoryChip
 import com.example.plshelp.android.data.ListingDetailViewModel
 
-// New imports for pointerInput
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+
 
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
-import com.mapbox.maps.MapboxExperimental
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
-import com.mapbox.maps.extension.compose.annotation.rememberIconImage // Import for marker fix
+import com.mapbox.maps.extension.compose.annotation.rememberIconImage
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
-import com.google.firebase.Timestamp // Import for Timestamp
+import com.google.firebase.Timestamp
+import com.mapbox.maps.extension.style.layers.properties.generated.TextAnchor
 
 import java.util.Date
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.max
+import com.mapbox.maps.extension.compose.rememberMapState
 
-@OptIn(ExperimentalMaterial3Api::class, MapboxExperimental::class)
 @Composable
 fun ListingDetailScreen(
     listingId: String,
     onBackClick: () -> Unit,
-    initialListing: Listing? = null // New parameter: nullable initial Listing object
+    initialListing: Listing? = null
 ) {
     val viewModel: ListingDetailViewModel = viewModel(
         factory = ListingDetailViewModel.Factory(listingId, initialListing)
@@ -70,49 +75,29 @@ fun ListingDetailScreen(
     val isLoading = viewModel.isLoading
     val errorMessage = viewModel.errorMessage
 
+    var parentScrollEnabled by remember { mutableStateOf(true) }
     val scrollState = rememberScrollState()
 
     val mapViewportState = rememberMapViewportState {
         setCameraOptions {
-            // Default center if listing coordinates aren't available yet (Singapore)
-            center(Point.fromLngLat(103.8198, 1.3521))
+            center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
             zoom(10.0)
         }
     }
 
-    // Prepare the icon for the map marker
-    val customLocationPainter = rememberVectorPainter(
-        image = Icons.Default.LocationOn,
-    )
-    // CRITICAL for marker: Convert the painter to an IconImage that Mapbox can use
-    val markerIconId = rememberIconImage(key = "listing_location_marker", painter = customLocationPainter)
+    // Initialize MapState here
+    val mapState = rememberMapState()
+
+    // Prepare Icons for Markers (No Custom Tint)
+    val locationPainter = rememberVectorPainter(image = Icons.Default.LocationOn)
+    val markerIconId = rememberIconImage(key = "location_marker", painter = locationPainter)
 
 
-    // Update map camera when listing coordinates are available
-    LaunchedEffect(listing?.coord) {
-        listing?.coord?.let { coords ->
-            if (coords.size == 2) {
-                // Mapbox uses (longitude, latitude)
-                // Assuming coords[0] is latitude and coords[1] is longitude from ViewModel
-                val point = Point.fromLngLat(coords[1], coords[0])
-                mapViewportState.flyTo(
-                    CameraOptions.Builder()
-                        .center(point)
-                        .zoom(14.0) // Zoom in on the specific location
-                        .build()
-                )
-            }
-        }
-    }
-
-    // We remove Scaffold's topBar and manage padding manually within the content.
-    // The padding values from Scaffold are still useful if you want to reuse them.
-    Scaffold(
-    ) { paddingValuesFromScaffold -> // Rename to avoid confusion with internal padding
+    Scaffold { paddingValuesFromScaffold ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValuesFromScaffold), // Apply Scaffold's padding here if needed
+                .padding(paddingValuesFromScaffold),
             contentAlignment = Alignment.Center
         ) {
             if (isLoading) {
@@ -120,11 +105,13 @@ fun ListingDetailScreen(
             } else if (errorMessage != null) {
                 Text(errorMessage, color = MaterialTheme.colorScheme.error)
             } else if (listing != null) {
+                val isDeliveryListing = listing.category.contains("Delivery", ignoreCase = true)
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(scrollState)
-                        .padding(16.dp), // Main padding for the content
+                        .verticalScroll(scrollState, enabled = parentScrollEnabled)
+                        .padding(16.dp),
                     horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -132,7 +119,7 @@ fun ListingDetailScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp) // Space between icon and title
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(onClick = onBackClick) {
                             Icon(
@@ -145,14 +132,15 @@ fun ListingDetailScreen(
                             text = listing.title,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f) // Allow title to take remaining space
+                            modifier = Modifier.weight(1f)
                         )
                     }
 
                     // Categories
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), //spacing between category chips
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         val categories = listing.category.split(", ").map { it.trim() }
                         categories.forEach { category ->
@@ -171,11 +159,11 @@ fun ListingDetailScreen(
                         style = MaterialTheme.typography.bodyLarge
                     )
 
-                    // Price and Posted By (in one line)
+                    // Price and Posted By
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween // Pushes items to ends
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
                             text = "Price: $${listing.price}",
@@ -183,7 +171,7 @@ fun ListingDetailScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.width(16.dp)) // Add some space if both might be long
+                        Spacer(modifier = Modifier.width(16.dp))
                         Text(
                             text = "Posted by: ${listing.ownerName}",
                             style = MaterialTheme.typography.bodyMedium,
@@ -191,43 +179,151 @@ fun ListingDetailScreen(
                         )
                     }
 
+                    // Location Display
+                    if (isDeliveryListing && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
+                        Text(
+                            text = "Pickup Location:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Delivery Location:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.DarkGray
+                        )
+                    } else {
+                        Text(
+                            text = "Location:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.DarkGray
+                        )
+                    }
 
-                    Text(
-                        text = "Location:",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    // Mapbox Map displaying listing location
+                    // Mapbox Map displaying listing location(s)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(250.dp) // Fixed height for the map
+                            .height(250.dp)
                     ) {
                         MapboxMap(
                             modifier = Modifier
                                 .fillMaxSize()
-                                // Keeping your existing pointerInput for now, but be aware it blocks map pan/zoom
                                 .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = { /* Optional: actions when drag starts */ },
-                                        onDragEnd = { /* Optional: actions when drag ends */ },
-                                        onDragCancel = { /* Optional: actions when drag is cancelled */ },
-                                        onDrag = { change, _ -> change.consume() } // Consume all changes during drag
-                                    )
+                                    awaitEachGesture {
+                                        awaitFirstDown(pass = PointerEventPass.Initial)
+                                        parentScrollEnabled = false
+                                        do {
+                                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                        } while (event.changes.any { it.pressed })
+                                        parentScrollEnabled = true
+                                    }
                                 },
-                            mapViewportState = mapViewportState
-                        ) {
-                            listing.coord.let { coords ->
-                                if (coords.size == 2) {
+                            mapViewportState = mapViewportState,
+                            mapState = mapState, // Pass the mapState to the composable
+                            content = {
+                                LaunchedEffect(listing.coord, listing.deliveryCoord) {
+                                    listing.let {
+                                        val pickupPoint = if (it.coord.size == 2)
+                                            Point.fromLngLat(it.coord[1], it.coord[0])
+                                        else null
+
+                                        val isDeliveryListing = it.category.contains("Delivery", ignoreCase = true)
+                                        val deliveryPoint = if (isDeliveryListing) {
+                                            val coords = listing.deliveryCoord
+                                            if (coords != null && coords.size == 2) {
+                                                Point.fromLngLat(coords[1], coords[0])
+                                            } else null
+                                        } else null
+
+
+                                        val cameraOptions = when {
+                                            pickupPoint != null && deliveryPoint != null -> {
+                                                val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
+                                                val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
+
+                                                val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
+                                                val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
+
+                                                val maxDiff = max(latDiff, lonDiff)
+
+                                                val zoom = when {
+                                                    maxDiff < 0.01 -> 14.0
+                                                    maxDiff < 0.05 -> 12.0
+                                                    maxDiff < 0.1 -> 10.5
+                                                    maxDiff < 0.5 -> 9.5
+                                                    else -> 8.5
+                                                }
+
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(midLon, midLat))
+                                                    .zoom(zoom)
+                                                    .build()
+                                            }
+
+                                            pickupPoint != null -> {
+                                                CameraOptions.Builder()
+                                                    .center(pickupPoint)
+                                                    .zoom(14.0)
+                                                    .build()
+                                            }
+
+                                            else -> {
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
+                                                    .zoom(10.0)
+                                                    .build()
+                                            }
+                                        }
+
+                                        mapViewportState.flyTo(cameraOptions)
+                                    }
+                                }
+
+
+                                // Point Annotations remain inside the content block
+                                if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
                                     PointAnnotation(
-                                        point = Point.fromLngLat(coords[1], coords[0]), // Lon, Lat for Mapbox
+                                        point = Point.fromLngLat(listing.coord[1], listing.coord[0]),
                                     ) {
                                         iconImage = markerIconId
+                                        textField = if (listing.category.contains("Delivery", ignoreCase = true)) "Pickup" else "Location"
+                                        textSize = 12.0
+                                        textHaloWidth = 1.0
+                                        textAnchor = TextAnchor.TOP
+                                        textOffset = listOf(0.0, -1.5)
+                                    }
+                                }
+
+                                if (listing.category.contains("Delivery", ignoreCase = true) && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
+                                    PointAnnotation(
+                                        point = Point.fromLngLat(listing.deliveryCoord[1], listing.deliveryCoord[0]),
+                                    ) {
+                                        iconImage = markerIconId
+                                        textField = "Delivery"
+                                        textSize = 12.0
+                                        textHaloWidth = 1.0
+                                        textAnchor = TextAnchor.TOP
+                                        textOffset = listOf(0.0, -1.5)
                                     }
                                 }
                             }
-                        }
+                        )
                     }
 
                     // Created "X time ago"
@@ -236,7 +332,7 @@ fun ListingDetailScreen(
                             text = "Created ${formatTimestampToTimeAgo(timestamp)} ago",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray,
-                            modifier = Modifier.align(Alignment.End) // Align to the right
+                            modifier = Modifier.align(Alignment.End)
                         )
                     }
                 }
@@ -256,16 +352,16 @@ fun formatTimestampToTimeAgo(timestamp: Timestamp): String {
     val hours = TimeUnit.MILLISECONDS.toHours(diff)
     val days = TimeUnit.MILLISECONDS.toDays(diff)
     val weeks = days / 7
-    val months = days / 30 // Approximation
-    val years = days / 365 // Approximation
+    val months = days / 30
+    val years = days / 365
 
     return when {
-        years > 0 -> "${years} year${if (years > 1) "s" else ""}"
-        months > 0 -> "${months} month${if (months > 1) "s" else ""}"
-        weeks > 0 -> "${weeks} week${if (weeks > 1) "s" else ""}"
-        days > 0 -> "${days} day${if (days > 1) "s" else ""}"
-        hours > 0 -> "${hours} hour${if (hours > 1) "s" else ""}"
-        minutes > 0 -> "${minutes} minute${if (minutes > 1) "s" else ""}"
-        else -> "${seconds} second${if (seconds > 1) "s" else ""}"
+        years > 0 -> "$years year${if (years > 1) "s" else ""}"
+        months > 0 -> "$months month${if (months > 1) "s" else ""}"
+        weeks > 0 -> "$weeks week${if (weeks > 1) "s" else ""}"
+        days > 0 -> "$days day${if (days > 1) "s" else ""}"
+        hours > 0 -> "$hours hour${if (hours > 1) "s" else ""}"
+        minutes > 0 -> "$minutes minute${if (minutes > 1) "s" else ""}"
+        else -> "$seconds second${if (seconds > 1) "s" else ""}"
     }
 }

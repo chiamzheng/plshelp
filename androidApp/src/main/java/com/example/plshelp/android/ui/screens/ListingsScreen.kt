@@ -302,7 +302,8 @@ fun ExpandableListingCard(
             val listingLat = listing.coord[0]
             val listingLon = listing.coord[1]
             val results = FloatArray(1)
-            Location.distanceBetween(currentLat, currentLon, listingLat.toDouble(), listingLon.toDouble(), results) // Ensure conversion to Double
+            Location.distanceBetween(currentLat, currentLon,
+                listingLat, listingLon, results)
             val distanceInMeters = results[0]
 
             when (displayMode) {

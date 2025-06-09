@@ -1,8 +1,8 @@
-import android.os.Parcelable // Import Parcelable
+import android.os.Parcelable
 import com.google.firebase.Timestamp
-import kotlinx.parcelize.Parcelize // Import @Parcelize
+import kotlinx.parcelize.Parcelize
 
-@Parcelize // Add this annotation
+@Parcelize
 data class Listing(
     val id: String = "",
     val category: String = "",
@@ -16,6 +16,7 @@ data class Listing(
     val radius: Long = 0,
     val title: String = "",
     val timestamp: Timestamp? = null,
-    val status: String = ""
+    val status: String = "",
+    val deliveryCoord: List<Double>? = null
 
-) : Parcelable // Implement the Parcelable interface
+) : Parcelable

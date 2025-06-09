@@ -53,6 +53,12 @@ class ListingDetailViewModel(
                         val category = categoryList.joinToString(", ")
                         val coordGeoPoint = documentSnapshot.get("coord") as? GeoPoint
                         val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
+
+                        // --- NEW: Retrieve deliveryCoord ---
+                        val deliveryCoordGeoPoint = documentSnapshot.get("deliveryCoord") as? GeoPoint
+                        val deliveryCoord = deliveryCoordGeoPoint?.let { listOf(it.latitude, it.longitude) }
+                        // --- END NEW ---
+
                         val radius = documentSnapshot.getLong("radius") ?: 0L
                         val ownerID = documentSnapshot.getString("ownerID") ?: "N/A"
                         val ownerName = documentSnapshot.getString("ownerName") ?: "Anonymous"
@@ -60,16 +66,17 @@ class ListingDetailViewModel(
                         //val imgURL = documentSnapshot.getString("imgURL") // Make sure to retrieve imgURL
                         listing = Listing( //THIS IS ORDERED, BE CAREFUL TO MATCH ACCORDINGLY
                             id = documentSnapshot.id,
-                            category = category, // The 'category' variable you retrieved earlier
-                            coord = coord,       // The 'coord' variable you prepared
-                            subtitle = subtitle, // The 'subtitle' variable you retrieved
-                            description = description, // The 'description' variable you retrieved
-                            ownerID = ownerID,   // The 'ownerID' variable
-                            ownerName = ownerName, // The 'ownerName' variable
-                            price = price,       // The 'price' variable
-                            radius = radius,     // The 'radius' variable
-                            title = title,        // The 'title' variable
-                            timestamp = timestamp
+                            category = category,
+                            coord = coord,
+                            subtitle = subtitle,
+                            description = description,
+                            ownerID = ownerID,
+                            ownerName = ownerName,
+                            price = price,
+                            radius = radius,
+                            title = title,
+                            timestamp = timestamp,
+                            deliveryCoord = deliveryCoord // <--- PASS THE NEW FIELD
                         )
                         Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}")
                     } else {
@@ -86,10 +93,9 @@ class ListingDetailViewModel(
         }
     }
 
-    // Factory to create ViewModel with listingId and optional initialListing
     class Factory(
         private val listingId: String,
-        private val initialListing: Listing? // New: optional initial listing for the factory
+        private val initialListing: Listing?
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

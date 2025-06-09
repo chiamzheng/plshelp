@@ -35,7 +35,6 @@ import com.example.plshelp.android.LocalUserName
 
 // Mapbox Imports
 import com.mapbox.maps.CameraOptions
-import com.mapbox.maps.MapboxExperimental
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
@@ -72,7 +71,6 @@ data class CategorySelection(
     val selectedCategories: MutableSet<String>
 )
 
-@OptIn(MapboxExperimental::class)
 @Composable
 fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
@@ -437,7 +435,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     }
 }
 
-@OptIn(MapboxExperimental::class)
 @Composable
 fun LocationSelectionBlock(
     title: String,
@@ -545,8 +542,10 @@ fun LocationSelectionBlock(
         Text(
             text = "Selected Location: ${
                 when (locationSelection.type) {
-                    LocationType.CURRENT_LOCATION -> "Current - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
-                    LocationType.SELECTED_ON_MAP -> "Map - Lat: %.4f, Lon: %.4f".format(locationSelection.coordinates!!.latitude, locationSelection.coordinates!!.longitude)
+                    LocationType.CURRENT_LOCATION -> "Current - Lat: %.4f, Lon: %.4f".format(
+                        locationSelection.coordinates.latitude, locationSelection.coordinates.longitude)
+                    LocationType.SELECTED_ON_MAP -> "Map - Lat: %.4f, Lon: %.4f".format(
+                        locationSelection.coordinates.latitude, locationSelection.coordinates.longitude)
                     LocationType.NO_LOCATION -> "No location selected"
                 }
             }",
