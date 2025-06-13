@@ -40,6 +40,10 @@ import com.example.plshelp.android.data.ListingsViewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
+// NEW: Import AcceptedRequestsScreen
+import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
+
+
 class MainActivity : ComponentActivity() {
 
     private val fineLocationPermissionLauncher =
@@ -77,9 +81,8 @@ class MainActivity : ComponentActivity() {
 
                 var navigateAfterAuth by remember { mutableStateOf(false) }
                 val currentUserId = auth.currentUser?.uid ?: ""
-                val globalUserNameState = remember { mutableStateOf("") } // This MutableState will hold the globally available username
+                val globalUserNameState = remember { mutableStateOf("") }
 
-                // Fetch username from Firestore once when userId becomes available (i.e., on login)
                 LaunchedEffect(currentUserId) {
                     if (currentUserId.isNotEmpty()) {
                         try {
@@ -87,17 +90,16 @@ class MainActivity : ComponentActivity() {
                             globalUserNameState.value = userDocument.getString("name") ?: "Anonymous"
                         } catch (e: Exception) {
                             Log.e("MainActivity", "Error fetching username: ${e.message}")
-                            globalUserNameState.value = "Anonymous" // Fallback
+                            globalUserNameState.value = "Anonymous"
                         }
                     } else {
-                        globalUserNameState.value = "" // Reset if no user logged in
+                        globalUserNameState.value = ""
                     }
                 }
 
-                // <--- PROVIDE BOTH USER ID AND USER NAME STATE HERE
                 CompositionLocalProvider(
                     LocalUserId provides currentUserId,
-                    LocalUserName provides globalUserNameState // Provide the MutableState object
+                    LocalUserName provides globalUserNameState
                 ){
                     if (isLoggedIn) {
                         Scaffold(
@@ -138,11 +140,38 @@ class MainActivity : ComponentActivity() {
                                         ListingDetailScreen(
                                             listingId = listingId,
                                             onBackClick = { navController.popBackStack() },
-                                            initialListing = initialListing
+                                            initialListing = initialListing,
+                                            // NEW: Pass the navigation callback for AcceptedRequestsScreen
+                                            onNavigateToAcceptedRequests = { id, ownerId ->
+                                                navController.navigate("acceptedRequests/$id/$ownerId")
+                                            }
                                         )
                                     } else {
                                         LaunchedEffect(Unit) {
                                             Log.e("MainActivity", "Error: listingId was null for detail screen. Navigating back.")
+                                            navController.popBackStack()
+                                        }
+                                    }
+                                }
+                                // NEW: Composable for AcceptedRequestsScreen
+                                composable(
+                                    "acceptedRequests/{listingId}/{ownerId}",
+                                    arguments = listOf(
+                                        navArgument("listingId") { type = NavType.StringType },
+                                        navArgument("ownerId") { type = NavType.StringType }
+                                    )
+                                ) { backStackEntry ->
+                                    val listingId = backStackEntry.arguments?.getString("listingId")
+                                    val ownerId = backStackEntry.arguments?.getString("ownerId")
+                                    if (listingId != null && ownerId != null) {
+                                        AcceptedRequestsScreen(
+                                            listingId = listingId,
+                                            listingOwnerId = ownerId,
+                                            onBackClick = { navController.popBackStack() }
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            Log.e("MainActivity", "Error: listingId or ownerId was null for accepted requests screen. Navigating back.")
                                             navController.popBackStack()
                                         }
                                     }
@@ -256,7 +285,7 @@ class MainActivity : ComponentActivity() {
                             navigateAfterAuth = false
                         }
                     }
-                } // <--- END OF COMPOSITIONLOCALPROVIDER
+                }
             }
         }
 

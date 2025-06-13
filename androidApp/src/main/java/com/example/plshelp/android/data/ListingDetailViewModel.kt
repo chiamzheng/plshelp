@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/plshelp/android/data/ListingDetailViewModel.kt
 package com.example.plshelp.android.data
 
 import android.util.Log
@@ -10,11 +11,13 @@ import androidx.lifecycle.viewModelScope
 import Listing
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
+import com.google.firebase.firestore.FieldValue // Import FieldValue for arrayUnion
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class ListingDetailViewModel(
     private val listingId: String,
-    private val initialListing: Listing? = null // New: optional initial listing
+    private val initialListing: Listing? = null
 ) : ViewModel() {
     var listing: Listing? by mutableStateOf(null)
         private set
@@ -27,12 +30,14 @@ class ListingDetailViewModel(
 
     init {
         if (initialListing != null) {
-            // If an initial listing is provided, use it directly
             listing = initialListing
             isLoading = false
             Log.d("ListingDetailViewModel", "Initialized with passed listing: ${initialListing.title}")
+            // Even if initial listing is passed, we might want to fetch fresh details
+            // to ensure `acceptedBy` and `fulfilledBy` are up-to-date.
+            // For now, let's keep it simple and only fetch if initialListing is null.
+            // If you need real-time updates for these fields, consider an onSnapshot listener.
         } else {
-            // Otherwise, fetch details from Firestore using the ID
             fetchListingDetails()
         }
     }
@@ -40,7 +45,7 @@ class ListingDetailViewModel(
     private fun fetchListingDetails() {
         isLoading = true
         errorMessage = null
-        viewModelScope.launch { // Use viewModelScope for coroutine management
+        viewModelScope.launch {
             firestore.collection("listings").document(listingId)
                 .get()
                 .addOnSuccessListener { documentSnapshot ->
@@ -54,17 +59,21 @@ class ListingDetailViewModel(
                         val coordGeoPoint = documentSnapshot.get("coord") as? GeoPoint
                         val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
 
-                        // --- NEW: Retrieve deliveryCoord ---
                         val deliveryCoordGeoPoint = documentSnapshot.get("deliveryCoord") as? GeoPoint
                         val deliveryCoord = deliveryCoordGeoPoint?.let { listOf(it.latitude, it.longitude) }
-                        // --- END NEW ---
 
                         val radius = documentSnapshot.getLong("radius") ?: 0L
                         val ownerID = documentSnapshot.getString("ownerID") ?: "N/A"
                         val ownerName = documentSnapshot.getString("ownerName") ?: "Anonymous"
                         val timestamp = documentSnapshot.getTimestamp("timestamp")
-                        //val imgURL = documentSnapshot.getString("imgURL") // Make sure to retrieve imgURL
-                        listing = Listing( //THIS IS ORDERED, BE CAREFUL TO MATCH ACCORDINGLY
+                        val status = documentSnapshot.getString("status") ?: "active"
+
+                        // --- NEW: Retrieve acceptedBy and fulfilledBy ---
+                        val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
+                        val fulfilledBy = documentSnapshot.getString("fulfilledBy")
+                        // --- END NEW ---
+
+                        listing = Listing(
                             id = documentSnapshot.id,
                             category = category,
                             coord = coord,
@@ -76,9 +85,12 @@ class ListingDetailViewModel(
                             radius = radius,
                             title = title,
                             timestamp = timestamp,
-                            deliveryCoord = deliveryCoord // <--- PASS THE NEW FIELD
+                            status = status,
+                            deliveryCoord = deliveryCoord,
+                            acceptedBy = acceptedBy, // Assign the retrieved list
+                            fulfilledBy = fulfilledBy // Assign the retrieved string
                         )
-                        Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}")
+                        Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy}")
                     } else {
                         errorMessage = "Listing not found."
                         Log.w("ListingDetailViewModel", "Listing with ID $listingId not found.")
@@ -93,6 +105,91 @@ class ListingDetailViewModel(
         }
     }
 
+    // --- NEW FUNCTION: To accept a request ---
+    fun acceptRequest(userId: String) {
+        if (listing == null) {
+            errorMessage = "Listing data not available."
+            return
+        }
+        if (isLoading) {
+            Log.d("ListingDetailViewModel", "Still loading, cannot accept.")
+            return
+        }
+
+        // Prevent accepting if already accepted or if it's the owner's own listing
+        if (userId == listing!!.ownerID) {
+            errorMessage = "You cannot accept your own request."
+            return
+        }
+        if (listing!!.acceptedBy.contains(userId)) {
+            errorMessage = "You have already accepted this request."
+            return
+        }
+        if (listing!!.fulfilledBy != null) {
+            errorMessage = "This request has already been fulfilled."
+            return
+        }
+
+        isLoading = true // Indicate that an operation is in progress
+        viewModelScope.launch {
+            try {
+                firestore.collection("listings").document(listingId)
+                    .update("acceptedBy", FieldValue.arrayUnion(userId)) // Atomically add UID to array
+                    .await()
+                // Update the local listing state immediately for UI responsiveness
+                listing = listing?.copy(acceptedBy = listing!!.acceptedBy + userId)
+                errorMessage = null // Clear any previous error
+                Log.d("ListingDetailViewModel", "Request $listingId accepted by $userId")
+            } catch (e: Exception) {
+                errorMessage = "Failed to accept request: ${e.localizedMessage}"
+                Log.e("ListingDetailViewModel", "Error accepting request $listingId by $userId", e)
+            } finally {
+                isLoading = false // Reset loading state
+            }
+        }
+    }
+
+    // --- NEW FUNCTION: To fulfill a request with a specific acceptor (ONLY FOR OWNER) ---
+    fun fulfillRequest(acceptorId: String) {
+        if (listing == null) {
+            errorMessage = "Listing data not available."
+            return
+        }
+        if (isLoading) {
+            Log.d("ListingDetailViewModel", "Still loading, cannot fulfill.")
+            return
+        }
+        if (listing!!.fulfilledBy != null) {
+            errorMessage = "This request has already been fulfilled."
+            return
+        }
+
+        isLoading = true
+        viewModelScope.launch {
+            try {
+                firestore.collection("listings").document(listingId)
+                    .update(
+                        mapOf(
+                            "fulfilledBy" to acceptorId,
+                            "status" to "fulfilled" // Optionally change status to fulfilled
+                        )
+                    )
+                    .await()
+                // Update local state
+                listing = listing?.copy(fulfilledBy = acceptorId, status = "fulfilled")
+                errorMessage = null
+                Log.d("ListingDetailViewModel", "Request $listingId fulfilled by $acceptorId")
+            } catch (e: Exception) {
+                errorMessage = "Failed to fulfill request: ${e.localizedMessage}"
+                Log.e("ListingDetailViewModel", "Error fulfilling request $listingId by $acceptorId", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
+    // Factory to create ViewModel with listingId and optional initialListing
     class Factory(
         private val listingId: String,
         private val initialListing: Listing?

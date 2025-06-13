@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 
 import com.mapbox.geojson.Point
+import com.mapbox.geojson.BoundingBox
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
@@ -59,13 +60,19 @@ import java.util.Date
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
+import com.mapbox.maps.EdgeInsets
+import com.mapbox.maps.CoordinateBounds
 import com.mapbox.maps.extension.compose.rememberMapState
+import com.example.plshelp.android.LocalUserId
+import androidx.compose.material3.Button
 
 @Composable
 fun ListingDetailScreen(
     listingId: String,
     onBackClick: () -> Unit,
-    initialListing: Listing? = null
+    initialListing: Listing? = null,
+    onNavigateToAcceptedRequests: (String, String?) -> Unit
 ) {
     val viewModel: ListingDetailViewModel = viewModel(
         factory = ListingDetailViewModel.Factory(listingId, initialListing)
@@ -85,13 +92,12 @@ fun ListingDetailScreen(
         }
     }
 
-    // Initialize MapState here
     val mapState = rememberMapState()
 
-    // Prepare Icons for Markers (No Custom Tint)
     val locationPainter = rememberVectorPainter(image = Icons.Default.LocationOn)
     val markerIconId = rememberIconImage(key = "location_marker", painter = locationPainter)
 
+    val currentUserId = LocalUserId.current
 
     Scaffold { paddingValuesFromScaffold ->
         Box(
@@ -106,6 +112,9 @@ fun ListingDetailScreen(
                 Text(errorMessage, color = MaterialTheme.colorScheme.error)
             } else if (listing != null) {
                 val isDeliveryListing = listing.category.contains("Delivery", ignoreCase = true)
+                val isOwner = (currentUserId == listing.ownerID)
+                val hasAccepted = listing.acceptedBy.contains(currentUserId)
+                val isFulfilled = listing.fulfilledBy != null
 
                 Column(
                     modifier = Modifier
@@ -115,7 +124,6 @@ fun ListingDetailScreen(
                     horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Custom Header: Back Button and Title
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -136,10 +144,9 @@ fun ListingDetailScreen(
                         )
                     }
 
-                    // Categories
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp), //spacing between category chips
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val categories = listing.category.split(", ").map { it.trim() }
@@ -148,7 +155,6 @@ fun ListingDetailScreen(
                         }
                     }
 
-                    // Description
                     Text(
                         text = "Description:",
                         style = MaterialTheme.typography.titleMedium,
@@ -159,7 +165,6 @@ fun ListingDetailScreen(
                         style = MaterialTheme.typography.bodyLarge
                     )
 
-                    // Price and Posted By
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -179,7 +184,6 @@ fun ListingDetailScreen(
                         )
                     }
 
-                    // Location Display
                     if (isDeliveryListing && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
                         Text(
                             text = "Pickup Location:",
@@ -215,7 +219,6 @@ fun ListingDetailScreen(
                         )
                     }
 
-                    // Mapbox Map displaying listing location(s)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -235,33 +238,29 @@ fun ListingDetailScreen(
                                     }
                                 },
                             mapViewportState = mapViewportState,
-                            mapState = mapState, // Pass the mapState to the composable
+                            mapState = mapState,
                             content = {
-                                LaunchedEffect(listing.coord, listing.deliveryCoord) {
+                                LaunchedEffect(listing.coord, listing.deliveryCoord, mapState) {
                                     listing.let {
                                         val pickupPoint = if (it.coord.size == 2)
                                             Point.fromLngLat(it.coord[1], it.coord[0])
                                         else null
 
-                                        val isDeliveryListing = it.category.contains("Delivery", ignoreCase = true)
-                                        val deliveryPoint = if (isDeliveryListing) {
+                                        val isDeliveryListingEffect = it.category.contains("Delivery", ignoreCase = true)
+                                        val deliveryPoint = if (isDeliveryListingEffect) {
                                             val coords = listing.deliveryCoord
                                             if (coords != null && coords.size == 2) {
                                                 Point.fromLngLat(coords[1], coords[0])
                                             } else null
                                         } else null
 
-
                                         val cameraOptions = when {
                                             pickupPoint != null && deliveryPoint != null -> {
                                                 val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
                                                 val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
-
                                                 val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
                                                 val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
-
                                                 val maxDiff = max(latDiff, lonDiff)
-
                                                 val zoom = when {
                                                     maxDiff < 0.01 -> 14.0
                                                     maxDiff < 0.05 -> 12.0
@@ -269,20 +268,17 @@ fun ListingDetailScreen(
                                                     maxDiff < 0.5 -> 9.5
                                                     else -> 8.5
                                                 }
-
                                                 CameraOptions.Builder()
                                                     .center(Point.fromLngLat(midLon, midLat))
                                                     .zoom(zoom)
                                                     .build()
                                             }
-
                                             pickupPoint != null -> {
                                                 CameraOptions.Builder()
                                                     .center(pickupPoint)
                                                     .zoom(14.0)
                                                     .build()
                                             }
-
                                             else -> {
                                                 CameraOptions.Builder()
                                                     .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
@@ -290,13 +286,11 @@ fun ListingDetailScreen(
                                                     .build()
                                             }
                                         }
-
                                         mapViewportState.flyTo(cameraOptions)
                                     }
                                 }
 
 
-                                // Point Annotations remain inside the content block
                                 if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
                                     PointAnnotation(
                                         point = Point.fromLngLat(listing.coord[1], listing.coord[0]),
@@ -326,7 +320,61 @@ fun ListingDetailScreen(
                         )
                     }
 
-                    // Created "X time ago"
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isOwner) {
+                            Button(
+                                onClick = { onNavigateToAcceptedRequests(listing.id, listing.ownerID) },
+                                enabled = listing.acceptedBy.isNotEmpty() && !isFulfilled
+                            ) {
+                                Text("View Acceptors (${listing.acceptedBy.size})")
+                            }
+                        } else {
+                            if (!hasAccepted && !isFulfilled) {
+                                Button(
+                                    onClick = { viewModel.acceptRequest(currentUserId) },
+                                    enabled = !isLoading
+                                ) {
+                                    Text("Accept Request")
+                                }
+                            } else if (hasAccepted && !isFulfilled) {
+                                Text(
+                                    "Accepted",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(onClick = { /* TODO: Implement chat with owner */ }) {
+                                    Text("Chat with Owner")
+                                }
+                            } else if (isFulfilled) {
+                                Text(
+                                    "Request Fulfilled",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                if (currentUserId == listing.fulfilledBy) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(onClick = { /* TODO: Implement chat with owner */ }) {
+                                        Text("Chat with Owner")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (isFulfilled) {
+                        Text(
+                            "Fulfilled by: ${listing.fulfilledBy}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            modifier = Modifier.align(Alignment.End)
+                        )
+                    }
+
                     listing.timestamp?.let { timestamp ->
                         Text(
                             text = "Created ${formatTimestampToTimeAgo(timestamp)} ago",
@@ -341,7 +389,6 @@ fun ListingDetailScreen(
     }
 }
 
-// Helper function to format timestamp to "X time ago"
 fun formatTimestampToTimeAgo(timestamp: Timestamp): String {
     val date = timestamp.toDate()
     val now = Date()
