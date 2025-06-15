@@ -1,4 +1,3 @@
-// app/src/main/java/com/example/plshelp/android/data/ListingDetailViewModel.kt
 package com.example.plshelp.android.data
 
 import android.util.Log
@@ -11,9 +10,10 @@ import androidx.lifecycle.viewModelScope
 import Listing
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
-import com.google.firebase.firestore.FieldValue // Import FieldValue for arrayUnion
+import com.google.firebase.firestore.FieldValue // Import FieldValue for arrayUnion, arrayRemove
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.Timestamp // Assuming this is correctly imported for your Listing data class
 
 class ListingDetailViewModel(
     private val listingId: String,
@@ -33,10 +33,9 @@ class ListingDetailViewModel(
             listing = initialListing
             isLoading = false
             Log.d("ListingDetailViewModel", "Initialized with passed listing: ${initialListing.title}")
-            // Even if initial listing is passed, we might want to fetch fresh details
-            // to ensure `acceptedBy` and `fulfilledBy` are up-to-date.
-            // For now, let's keep it simple and only fetch if initialListing is null.
-            // If you need real-time updates for these fields, consider an onSnapshot listener.
+            // Consider adding a listener here if you want real-time updates for acceptedBy/fulfilledBy
+            // For now, we'll only fetch if initialListing is null to avoid double fetching on first load
+            // and assume direct UI updates via ViewModel functions are sufficient.
         } else {
             fetchListingDetails()
         }
@@ -50,6 +49,7 @@ class ListingDetailViewModel(
                 .get()
                 .addOnSuccessListener { documentSnapshot ->
                     if (documentSnapshot.exists()) {
+                        // Safely retrieve data, providing defaults
                         val title = documentSnapshot.getString("title") ?: "N/A"
                         val subtitle = documentSnapshot.getString("subtitle") ?: "N/A"
                         val description = documentSnapshot.getString("description") ?: "N/A"
@@ -68,10 +68,8 @@ class ListingDetailViewModel(
                         val timestamp = documentSnapshot.getTimestamp("timestamp")
                         val status = documentSnapshot.getString("status") ?: "active"
 
-                        // --- NEW: Retrieve acceptedBy and fulfilledBy ---
                         val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
                         val fulfilledBy = documentSnapshot.getString("fulfilledBy")
-                        // --- END NEW ---
 
                         listing = Listing(
                             id = documentSnapshot.id,
@@ -87,8 +85,8 @@ class ListingDetailViewModel(
                             timestamp = timestamp,
                             status = status,
                             deliveryCoord = deliveryCoord,
-                            acceptedBy = acceptedBy, // Assign the retrieved list
-                            fulfilledBy = fulfilledBy // Assign the retrieved string
+                            acceptedBy = acceptedBy,
+                            fulfilledBy = fulfilledBy
                         )
                         Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy}")
                     } else {
@@ -105,61 +103,26 @@ class ListingDetailViewModel(
         }
     }
 
-    // --- NEW FUNCTION: To accept a request ---
     fun acceptRequest(userId: String) {
         if (listing == null) {
             errorMessage = "Listing data not available."
             return
         }
         if (isLoading) {
-            Log.d("ListingDetailViewModel", "Still loading, cannot accept.")
+            Log.d("ListingDetailViewModel", "Operation in progress, cannot accept.")
             return
         }
 
-        // Prevent accepting if already accepted or if it's the owner's own listing
-        if (userId == listing!!.ownerID) {
-            errorMessage = "You cannot accept your own request."
+        val currentListing = listing!! // Assert non-null after check
+        if (userId == currentListing.ownerID) {
+            errorMessage = "You cannot offer to help your own request."
             return
         }
-        if (listing!!.acceptedBy.contains(userId)) {
-            errorMessage = "You have already accepted this request."
+        if (currentListing.acceptedBy.contains(userId)) {
+            errorMessage = "You have already offered to help for this request."
             return
         }
-        if (listing!!.fulfilledBy != null) {
-            errorMessage = "This request has already been fulfilled."
-            return
-        }
-
-        isLoading = true // Indicate that an operation is in progress
-        viewModelScope.launch {
-            try {
-                firestore.collection("listings").document(listingId)
-                    .update("acceptedBy", FieldValue.arrayUnion(userId)) // Atomically add UID to array
-                    .await()
-                // Update the local listing state immediately for UI responsiveness
-                listing = listing?.copy(acceptedBy = listing!!.acceptedBy + userId)
-                errorMessage = null // Clear any previous error
-                Log.d("ListingDetailViewModel", "Request $listingId accepted by $userId")
-            } catch (e: Exception) {
-                errorMessage = "Failed to accept request: ${e.localizedMessage}"
-                Log.e("ListingDetailViewModel", "Error accepting request $listingId by $userId", e)
-            } finally {
-                isLoading = false // Reset loading state
-            }
-        }
-    }
-
-    // --- NEW FUNCTION: To fulfill a request with a specific acceptor (ONLY FOR OWNER) ---
-    fun fulfillRequest(acceptorId: String) {
-        if (listing == null) {
-            errorMessage = "Listing data not available."
-            return
-        }
-        if (isLoading) {
-            Log.d("ListingDetailViewModel", "Still loading, cannot fulfill.")
-            return
-        }
-        if (listing!!.fulfilledBy != null) {
+        if (currentListing.fulfilledBy != null) {
             errorMessage = "This request has already been fulfilled."
             return
         }
@@ -168,15 +131,95 @@ class ListingDetailViewModel(
         viewModelScope.launch {
             try {
                 firestore.collection("listings").document(listingId)
+                    .update("acceptedBy", FieldValue.arrayUnion(userId))
+                    .await()
+                // Update the local listing state immediately for UI responsiveness
+                listing = currentListing.copy(acceptedBy = currentListing.acceptedBy + userId)
+                errorMessage = null
+                Log.d("ListingDetailViewModel", "Request $listingId accepted by $userId")
+            } catch (e: Exception) {
+                errorMessage = "Failed to offer help: ${e.localizedMessage}"
+                Log.e("ListingDetailViewModel", "Error offering help for request $listingId by $userId", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // --- NEW FUNCTION: To unaccept/withdraw an offer ---
+    fun unacceptRequest(userId: String) {
+        if (listing == null) {
+            errorMessage = "Listing data not available."
+            return
+        }
+        if (isLoading) {
+            Log.d("ListingDetailViewModel", "Operation in progress, cannot unaccept.")
+            return
+        }
+
+        val currentListing = listing!!
+        if (!currentListing.acceptedBy.contains(userId)) {
+            errorMessage = "You have not offered to help for this request."
+            return
+        }
+        if (currentListing.fulfilledBy != null) {
+            errorMessage = "This request has already been fulfilled."
+            return
+        }
+
+        isLoading = true
+        viewModelScope.launch {
+            try {
+                firestore.collection("listings").document(listingId)
+                    .update("acceptedBy", FieldValue.arrayRemove(userId)) // Atomically remove UID from array
+                    .await()
+                // Update the local listing state immediately
+                listing = currentListing.copy(acceptedBy = currentListing.acceptedBy - userId)
+                errorMessage = null
+                Log.d("ListingDetailViewModel", "Request $listingId unaccepted by $userId")
+            } catch (e: Exception) {
+                errorMessage = "Failed to withdraw offer: ${e.localizedMessage}"
+                Log.e("ListingDetailViewModel", "Error withdrawing offer for request $listingId by $userId", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fulfillRequest(acceptorId: String) {
+        if (listing == null) {
+            errorMessage = "Listing data not available."
+            return
+        }
+        if (isLoading) {
+            Log.d("ListingDetailViewModel", "Operation in progress, cannot fulfill.")
+            return
+        }
+
+        val currentListing = listing!!
+        if (currentListing.fulfilledBy != null) {
+            errorMessage = "This request has already been fulfilled."
+            return
+        }
+        // Ensure the acceptorId is actually in the acceptedBy list, if you want to enforce this
+        if (!currentListing.acceptedBy.contains(acceptorId)) {
+            errorMessage = "The selected user has not offered to help for this request."
+            return
+        }
+
+
+        isLoading = true
+        viewModelScope.launch {
+            try {
+                firestore.collection("listings").document(listingId)
                     .update(
                         mapOf(
                             "fulfilledBy" to acceptorId,
-                            "status" to "fulfilled" // Optionally change status to fulfilled
+                            "status" to "fulfilled"
                         )
                     )
                     .await()
-                // Update local state
-                listing = listing?.copy(fulfilledBy = acceptorId, status = "fulfilled")
+                listing = currentListing.copy(fulfilledBy = acceptorId, status = "fulfilled")
                 errorMessage = null
                 Log.d("ListingDetailViewModel", "Request $listingId fulfilled by $acceptorId")
             } catch (e: Exception) {
@@ -188,8 +231,6 @@ class ListingDetailViewModel(
         }
     }
 
-
-    // Factory to create ViewModel with listingId and optional initialListing
     class Factory(
         private val listingId: String,
         private val initialListing: Listing?

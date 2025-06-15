@@ -20,6 +20,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -42,12 +46,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
-
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
-
 import com.mapbox.geojson.Point
-import com.mapbox.geojson.BoundingBox
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
@@ -62,10 +63,9 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import com.mapbox.maps.EdgeInsets
-import com.mapbox.maps.CoordinateBounds
 import com.mapbox.maps.extension.compose.rememberMapState
 import com.example.plshelp.android.LocalUserId
-import androidx.compose.material3.Button
+
 
 @Composable
 fun ListingDetailScreen(
@@ -78,6 +78,7 @@ fun ListingDetailScreen(
         factory = ListingDetailViewModel.Factory(listingId, initialListing)
     )
 
+    // FIX: Access state properties using .value
     val listing = viewModel.listing
     val isLoading = viewModel.isLoading
     val errorMessage = viewModel.errorMessage
@@ -99,6 +100,8 @@ fun ListingDetailScreen(
 
     val currentUserId = LocalUserId.current
 
+    var showUnacceptConfirmationDialog by remember { mutableStateOf(false) }
+
     Scaffold { paddingValuesFromScaffold ->
         Box(
             modifier = Modifier
@@ -106,11 +109,15 @@ fun ListingDetailScreen(
                 .padding(paddingValuesFromScaffold),
             contentAlignment = Alignment.Center
         ) {
-            if (isLoading) {
+            // FIX: Check errorMessage before trying to access it (if it's nullable)
+            if (isLoading && listing == null) {
                 CircularProgressIndicator()
             } else if (errorMessage != null) {
-                Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                Text(errorMessage, color = MaterialTheme.colorScheme.error) // errorMessage is String?, so it's fine
             } else if (listing != null) {
+                // 'listing' is smart-cast to non-nullable 'Listing' inside this block.
+                // We can now use 'listing.property' directly.
+
                 val isDeliveryListing = listing.category.contains("Delivery", ignoreCase = true)
                 val isOwner = (currentUserId == listing.ownerID)
                 val hasAccepted = listing.acceptedBy.contains(currentUserId)
@@ -150,6 +157,7 @@ fun ListingDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val categories = listing.category.split(", ").map { it.trim() }
+                        // FIX: Explicitly declare lambda parameter for forEach
                         categories.forEach { category ->
                             CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
                         }
@@ -158,7 +166,7 @@ fun ListingDetailScreen(
                     Text(
                         text = "Description:",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = listing.description,
@@ -188,7 +196,7 @@ fun ListingDetailScreen(
                         Text(
                             text = "Pickup Location:",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
@@ -199,7 +207,7 @@ fun ListingDetailScreen(
                         Text(
                             text = "Delivery Location:",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
@@ -210,7 +218,7 @@ fun ListingDetailScreen(
                         Text(
                             text = "Location:",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
@@ -240,56 +248,61 @@ fun ListingDetailScreen(
                             mapViewportState = mapViewportState,
                             mapState = mapState,
                             content = {
-                                LaunchedEffect(listing.coord, listing.deliveryCoord, mapState) {
-                                    listing.let {
-                                        val pickupPoint = if (it.coord.size == 2)
-                                            Point.fromLngLat(it.coord[1], it.coord[0])
-                                        else null
+                                LaunchedEffect(listing.coord, listing.deliveryCoord) {
+                                    // 'listing' is guaranteed non-null here due to the outer if (listing != null)
+                                    val pickupPoint = if (listing.coord.size == 2)
+                                        Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                    else null
 
-                                        val isDeliveryListingEffect = it.category.contains("Delivery", ignoreCase = true)
-                                        val deliveryPoint = if (isDeliveryListingEffect) {
-                                            val coords = listing.deliveryCoord
-                                            if (coords != null && coords.size == 2) {
-                                                Point.fromLngLat(coords[1], coords[0])
-                                            } else null
+                                    val isDeliveryListingEffect = listing.category.contains("Delivery", ignoreCase = true)
+                                    val deliveryPoint = if (isDeliveryListingEffect) {
+                                        val coords = listing.deliveryCoord
+                                        if (coords != null && coords.size == 2) {
+                                            Point.fromLngLat(coords[1], coords[0])
                                         } else null
+                                    } else null
 
-                                        val cameraOptions = when {
-                                            pickupPoint != null && deliveryPoint != null -> {
-                                                val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
-                                                val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
-                                                val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
-                                                val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
-                                                val maxDiff = max(latDiff, lonDiff)
-                                                val zoom = when {
-                                                    maxDiff < 0.01 -> 14.0
-                                                    maxDiff < 0.05 -> 12.0
-                                                    maxDiff < 0.1 -> 10.5
-                                                    maxDiff < 0.5 -> 9.5
-                                                    else -> 8.5
-                                                }
-                                                CameraOptions.Builder()
-                                                    .center(Point.fromLngLat(midLon, midLat))
-                                                    .zoom(zoom)
-                                                    .build()
+                                    val cameraOptions = when {
+                                        pickupPoint != null && deliveryPoint != null -> {
+                                            val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
+                                            val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
+
+                                            val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
+                                            val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
+
+                                            val maxDiff = max(latDiff, lonDiff)
+
+                                            val zoom = when {
+                                                maxDiff < 0.01 -> 14.0
+                                                maxDiff < 0.05 -> 12.0
+                                                maxDiff < 0.1 -> 10.5
+                                                maxDiff < 0.5 -> 9.5
+                                                else -> 8.5
                                             }
-                                            pickupPoint != null -> {
-                                                CameraOptions.Builder()
-                                                    .center(pickupPoint)
-                                                    .zoom(14.0)
-                                                    .build()
-                                            }
-                                            else -> {
-                                                CameraOptions.Builder()
-                                                    .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
-                                                    .zoom(10.0)
-                                                    .build()
-                                            }
+
+                                            CameraOptions.Builder()
+                                                .center(Point.fromLngLat(midLon, midLat))
+                                                .zoom(zoom)
+                                                .build()
                                         }
-                                        mapViewportState.flyTo(cameraOptions)
-                                    }
-                                }
 
+                                        pickupPoint != null -> {
+                                            CameraOptions.Builder()
+                                                .center(pickupPoint)
+                                                .zoom(14.0)
+                                                .build()
+                                        }
+
+                                        else -> {
+                                            CameraOptions.Builder()
+                                                .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
+                                                .zoom(10.0)
+                                                .build()
+                                        }
+                                    }
+
+                                    mapViewportState.flyTo(cameraOptions)
+                                }
 
                                 if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
                                     PointAnnotation(
@@ -321,6 +334,7 @@ fun ListingDetailScreen(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceAround,
@@ -331,47 +345,116 @@ fun ListingDetailScreen(
                                 onClick = { onNavigateToAcceptedRequests(listing.id, listing.ownerID) },
                                 enabled = listing.acceptedBy.isNotEmpty() && !isFulfilled
                             ) {
-                                Text("View Acceptors (${listing.acceptedBy.size})")
+                                Text("View Offers (${listing.acceptedBy.size})")
                             }
-                        } else {
-                            if (!hasAccepted && !isFulfilled) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            if (!isFulfilled) {
                                 Button(
-                                    onClick = { viewModel.acceptRequest(currentUserId) },
-                                    enabled = !isLoading
+                                    onClick = {
+                                        // This will still need enhancement to let the owner choose an acceptor.
+                                        // For now, it fulfills with the first acceptor if available, otherwise current user (owner).
+                                        val acceptorToFulfill = listing.acceptedBy.firstOrNull()
+                                        if (acceptorToFulfill != null) {
+                                            viewModel.fulfillRequest(acceptorToFulfill)
+                                        } else {
+                                            // Handle case where no one has offered help yet or owner wants to self-fulfill
+                                            // Maybe show a dialog asking if owner wants to fulfill themselves?
+                                            // For now, let's only enable if there are actual acceptors.
+                                            // viewModel.fulfillRequest(currentUserId) // Uncomment if self-fulfillment is desired
+                                        }
+                                    },
+                                    // Only enable if there are acceptors and it's not fulfilled
+                                    enabled = !isLoading && listing.acceptedBy.isNotEmpty() && !isFulfilled
                                 ) {
-                                    Text("Accept Request")
+                                    Text("Fulfill Request")
                                 }
-                            } else if (hasAccepted && !isFulfilled) {
-                                Text(
-                                    "Accepted",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(onClick = { /* TODO: Implement chat with owner */ }) {
-                                    Text("Chat with Owner")
+                            }
+                        } else { // Not the owner
+                            if (!isFulfilled) {
+                                if (!hasAccepted) {
+                                    Button(
+                                        onClick = { viewModel.acceptRequest(currentUserId) },
+                                        enabled = !isLoading
+                                    ) {
+                                        Text("Offer to Help")
+                                    }
+                                } else { // User has offered to help
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            "Help Offered",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Button(
+                                            onClick = { showUnacceptConfirmationDialog = true },
+                                            enabled = !isLoading,
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                        ) {
+                                            Text("Withdraw Offer")
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { /* TODO: Implement chat with owner */ },
+                                        enabled = !isLoading
+                                    ) {
+                                        Text("Chat with Owner")
+                                    }
                                 }
-                            } else if (isFulfilled) {
+                            } else { // Request is fulfilled
                                 Text(
                                     "Request Fulfilled",
                                     color = Color.Gray,
                                     style = MaterialTheme.typography.labelLarge
                                 )
+                                // If the current user is the one who fulfilled it
                                 if (currentUserId == listing.fulfilledBy) {
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Button(onClick = { /* TODO: Implement chat with owner */ }) {
+                                    Button(
+                                        onClick = { /* TODO: Implement chat with owner */ },
+                                        enabled = !isLoading
+                                    ) {
                                         Text("Chat with Owner")
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Dialog for withdrawing offer
+                    if (showUnacceptConfirmationDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showUnacceptConfirmationDialog = false },
+                            title = { Text("Withdraw Offer") },
+                            text = { Text("Are you sure you want to withdraw your offer to help? You can offer again later if it's still available.") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.unacceptRequest(currentUserId)
+                                        showUnacceptConfirmationDialog = false
+                                    },
+                                    enabled = !isLoading
+                                ) {
+                                    Text("Confirm Withdraw")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showUnacceptConfirmationDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
+
                     if (isFulfilled) {
                         Text(
-                            "Fulfilled by: ${listing.fulfilledBy}",
+                            "Fulfilled by: ${listing.fulfilledBy ?: "Unknown"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray,
-                            modifier = Modifier.align(Alignment.End)
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(top = 8.dp)
                         )
                     }
 
@@ -380,7 +463,9 @@ fun ListingDetailScreen(
                             text = "Created ${formatTimestampToTimeAgo(timestamp)} ago",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray,
-                            modifier = Modifier.align(Alignment.End)
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(top = 8.dp)
                         )
                     }
                 }
