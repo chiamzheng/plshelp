@@ -37,10 +37,10 @@ import androidx.navigation.navArgument
 import Listing
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.plshelp.android.data.ListingsViewModel
+
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-// NEW: Import AcceptedRequestsScreen
 import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
 
 
@@ -106,11 +106,11 @@ class MainActivity : ComponentActivity() {
                             bottomBar = {
                                 BottomNavigationBar(navController = navController)
                             }
-                        ) { paddingValues ->
+                        ) { paddingValuesFromScaffold -> // Capture the padding values here
                             NavHost(
                                 navController = navController,
                                 startDestination = BottomNavItem.Listings.route,
-                                modifier = Modifier.padding(paddingValues)
+                                modifier = Modifier.padding(paddingValuesFromScaffold) // Apply Scaffold padding here
                             ) {
                                 composable(BottomNavItem.Listings.route) {
                                     val listingsViewModel: ListingsViewModel = viewModel(
@@ -141,7 +141,6 @@ class MainActivity : ComponentActivity() {
                                             listingId = listingId,
                                             onBackClick = { navController.popBackStack() },
                                             initialListing = initialListing,
-                                            // NEW: Pass the navigation callback for AcceptedRequestsScreen
                                             onNavigateToAcceptedRequests = { id, ownerId ->
                                                 navController.navigate("acceptedRequests/$id/$ownerId")
                                             }
@@ -153,7 +152,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                // NEW: Composable for AcceptedRequestsScreen
                                 composable(
                                     "acceptedRequests/{listingId}/{ownerId}",
                                     arguments = listOf(
@@ -183,7 +181,10 @@ class MainActivity : ComponentActivity() {
                                             isLoggedIn = false
                                             navigateAfterAuth = true
                                         },
-                                        modifier = Modifier.padding(paddingValues)
+                                        onNavigateToDetail = { listing ->
+                                            navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
+                                            navController.navigate("listingDetail/${listing.id}")
+                                        }
                                     )
                                 }
                                 composable(BottomNavItem.CreateRequest.route) {

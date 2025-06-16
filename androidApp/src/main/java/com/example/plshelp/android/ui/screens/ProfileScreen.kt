@@ -1,28 +1,36 @@
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.plshelp.android.LocalUserId
 import com.example.plshelp.android.LocalUserName
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import Listing // Ensure this is imported for your data class
+import kotlinx.coroutines.tasks.await
+import android.util.Log // For logging
+import androidx.compose.ui.text.font.FontWeight
 
 @Composable
-fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
+fun ProfileScreen(
+    onSignOut: () -> Unit,
+    onNavigateToDetail: (Listing) -> Unit, // This is still needed
+    modifier: Modifier = Modifier // The modifier will now directly contain the Scaffold's padding
+) {
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
-    val user = auth.currentUser // Still need this for re-authentication and email
+    val user = auth.currentUser
 
-    // --- USE GLOBAL USER ID AND USER NAME ---
     val currentUserId = LocalUserId.current
-    var currentUserName by LocalUserName.current // This is a mutable state, so we can update it
-    // --- END GLOBAL ---
+    var currentUserName by LocalUserName.current
 
     var newName by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
@@ -33,20 +41,94 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
     var showChangePasswordDialog by rememberSaveable { mutableStateOf(false) }
     var showReAuthDialog by rememberSaveable { mutableStateOf(false) }
 
-    // No longer need reloadUserData() directly, as currentUserName is already a mutable state
-    // and should be updated via LocalUserName.current if the name changes.
-    // LaunchedEffect(Unit) {
-    //     reloadUserData()
-    // }
+    // State for My Listings (now a regular mutableStateOf List)
+    var myListings by remember { mutableStateOf<List<Listing>>(emptyList()) }
+    var isLoadingMyListings by remember { mutableStateOf(true) }
+    var myListingsErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Fetch My Listings when the screen is composed
+    LaunchedEffect(currentUserId) {
+        if (currentUserId.isNotEmpty()) {
+            isLoadingMyListings = true
+            myListingsErrorMessage = null
+            try {
+                val querySnapshot = db.collection("listings")
+                    .whereEqualTo("ownerID", currentUserId)
+                    .get()
+                    .await()
+
+                val fetchedListings = mutableListOf<Listing>()
+                for (document in querySnapshot.documents) {
+                    try {
+                        val title = document.getString("title") ?: "N/A"
+                        val subtitle = document.getString("subtitle") ?: "N/A"
+                        val description = document.getString("description") ?: "N/A"
+                        val price = document.getString("price") ?: "0.00"
+                        val categoryList = document.get("category") as? List<String> ?: emptyList()
+                        val category = categoryList.joinToString(", ")
+                        val coordGeoPoint = document.get("coord") as? com.google.firebase.firestore.GeoPoint
+                        val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
+
+                        val deliveryCoordGeoPoint = document.get("deliveryCoord") as? com.google.firebase.firestore.GeoPoint
+                        val deliveryCoord = deliveryCoordGeoPoint?.let { listOf(it.latitude, it.longitude) }
+
+                        val radius = document.getLong("radius") ?: 0L
+                        val ownerID = document.getString("ownerID") ?: "N/A"
+                        val ownerName = document.getString("ownerName") ?: "Anonymous"
+                        val timestamp = document.getTimestamp("timestamp")
+                        val status = document.getString("status") ?: "active"
+
+                        val acceptedBy = document.get("acceptedBy") as? List<String> ?: emptyList()
+                        val fulfilledBy = document.getString("fulfilledBy")
+
+
+                        fetchedListings.add(
+                            Listing(
+                                id = document.id,
+                                category = category,
+                                coord = coord,
+                                subtitle = subtitle,
+                                description = description,
+                                ownerID = ownerID,
+                                ownerName = ownerName,
+                                price = price,
+                                radius = radius,
+                                title = title,
+                                timestamp = timestamp,
+                                status = status,
+                                deliveryCoord = deliveryCoord,
+                                acceptedBy = acceptedBy,
+                                fulfilledBy = fulfilledBy
+                            )
+                        )
+                    } catch (e: Exception) {
+                        Log.e("ProfileScreen", "Error parsing listing document ${document.id}: ${e.message}", e)
+                    }
+                }
+                myListings = fetchedListings // Update the state with the fetched list
+            } catch (e: Exception) {
+                myListingsErrorMessage = "Error fetching your listings: ${e.message}"
+                Log.e("ProfileScreen", "Error fetching user listings: ${e.message}", e)
+            } finally {
+                isLoadingMyListings = false
+            }
+        } else {
+            isLoadingMyListings = false
+            myListingsErrorMessage = "User ID not available to fetch listings."
+        }
+    }
+
 
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier // The Scaffold padding is already applied via this modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp) // Apply *only* horizontal padding here for the content
+            .verticalScroll(rememberScrollState()), // Make the entire Column scrollable
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
     ) {
         Text("Profile Screen", fontSize = 24.sp)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Name: $currentUserName") // Use global user name
+        Text("Name: $currentUserName")
         Spacer(modifier = Modifier.height(8.dp))
         Text("Email: ${user?.email ?: "Email not available"}")
         Spacer(modifier = Modifier.height(16.dp))
@@ -64,9 +146,39 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
         errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("My Listings", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (isLoadingMyListings) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+        } else if (myListingsErrorMessage != null) {
+            Text(myListingsErrorMessage!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.CenterHorizontally))
+        } else if (myListings.isEmpty()) {
+            Text("You have no listings.", modifier = Modifier.align(Alignment.CenterHorizontally))
+        } else {
+            // Use a regular Column and forEach to render all listings directly
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp) // Maintain spacing between cards
+            ) {
+                myListings.forEach { listing ->
+                    // Reusing ExpandableListingCard with dummy values
+                    ExpandableListingCard(
+                        listing = listing,
+                        onNavigateToDetail = onNavigateToDetail,
+                        currentLat = null, // Dummy value
+                        currentLon = null,
+                        displayMode = DisplayMode.DISTANCE // Dummy value
+                    )
+                }
+            }
+        }
+        // Add some bottom padding here to ensure the last listing isn't too close to the edge
+        Spacer(modifier = Modifier.height(16.dp))
     }
 
-    // Change Name Dialog
     if (showChangeNameDialog) {
         AlertDialog(
             onDismissRequest = { showChangeNameDialog = false },
@@ -80,13 +192,13 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
             },
             confirmButton = {
                 Button(onClick = {
-                    if (currentUserId.isNotEmpty()) { // Ensure we have a valid UID
+                    if (currentUserId.isNotEmpty()) {
                         db.collection("users").document(currentUserId).update("name", newName)
                             .addOnSuccessListener {
-                                currentUserName = newName // Update the global state
+                                currentUserName = newName
                                 showChangeNameDialog = false
                                 newName = ""
-                                errorMessage = null // Clear any previous error
+                                errorMessage = null
                             }
                             .addOnFailureListener { e ->
                                 errorMessage = "Failed to update name: ${e.message}"
@@ -106,7 +218,6 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
         )
     }
 
-    // Change Password Dialog
     if (showChangePasswordDialog) {
         AlertDialog(
             onDismissRequest = { showChangePasswordDialog = false },
@@ -117,14 +228,14 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
                         value = newPassword,
                         onValueChange = { newPassword = it },
                         label = { Text("New Password") },
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation() // Added for password fields
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
                         label = { Text("Confirm New Password") },
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation() // Added for password fields
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
                     )
                 }
             },
@@ -134,7 +245,7 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
                         errorMessage = "New password and confirm password cannot be empty."
                     } else if (newPassword == confirmPassword) {
                         showReAuthDialog = true
-                        errorMessage = null // Clear error before re-auth
+                        errorMessage = null
                     } else {
                         errorMessage = "Passwords do not match."
                     }
@@ -150,7 +261,6 @@ fun ProfileScreen(onSignOut: () -> Unit, modifier: Modifier = Modifier) {
         )
     }
 
-    // Re-authentication Dialog
     if (showReAuthDialog) {
         AlertDialog(
             onDismissRequest = { showReAuthDialog = false },

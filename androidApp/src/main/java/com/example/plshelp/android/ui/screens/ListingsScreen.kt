@@ -284,21 +284,22 @@ fun ListingsScreen(
 fun ExpandableListingCard(
     listing: Listing,
     onNavigateToDetail: (Listing) -> Unit,
-    currentLat: Double,
-    currentLon: Double,
+    currentLat: Double?, // Make nullable
+    currentLon: Double?, // Make nullable
     displayMode: DisplayMode
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
-    // Animate arrow rotation
     val rotationDegree by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         label = "ArrowRotation"
     )
 
     val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
-        // Ensure listing.coord is not null and has at least two elements
-        if (listing.coord.size >= 2) {
+        // Handle null currentLat/Lon by immediately returning "N/A"
+        if (currentLat == null || currentLon == null || listing.coord.size < 2) {
+            "N/A"
+        } else {
             val listingLat = listing.coord[0]
             val listingLon = listing.coord[1]
             val results = FloatArray(1)
@@ -331,8 +332,6 @@ fun ExpandableListingCard(
                     }
                 }
             }
-        } else {
-            "N/A" // Handle cases where coordinates might be missing or malformed
         }
     }
 

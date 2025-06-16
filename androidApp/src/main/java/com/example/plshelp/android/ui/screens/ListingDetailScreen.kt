@@ -61,24 +61,24 @@ import java.util.Date
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.max
+import kotlinx.coroutines.tasks.await
 import kotlin.math.min
 import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.extension.compose.rememberMapState
 import com.example.plshelp.android.LocalUserId
-
+import com.google.firebase.firestore.FirebaseFirestore // Added for OffersModal
 
 @Composable
 fun ListingDetailScreen(
     listingId: String,
     onBackClick: () -> Unit,
     initialListing: Listing? = null,
-    onNavigateToAcceptedRequests: (String, String?) -> Unit
+    onNavigateToAcceptedRequests: (String, String?) -> Unit // This callback might become redundant if offers handled here
 ) {
     val viewModel: ListingDetailViewModel = viewModel(
         factory = ListingDetailViewModel.Factory(listingId, initialListing)
     )
 
-    // FIX: Access state properties using .value
     val listing = viewModel.listing
     val isLoading = viewModel.isLoading
     val errorMessage = viewModel.errorMessage
@@ -101,6 +101,7 @@ fun ListingDetailScreen(
     val currentUserId = LocalUserId.current
 
     var showUnacceptConfirmationDialog by remember { mutableStateOf(false) }
+    var showOffersModal by remember { mutableStateOf(false) } // NEW STATE for showing offers modal
 
     Scaffold { paddingValuesFromScaffold ->
         Box(
@@ -109,15 +110,11 @@ fun ListingDetailScreen(
                 .padding(paddingValuesFromScaffold),
             contentAlignment = Alignment.Center
         ) {
-            // FIX: Check errorMessage before trying to access it (if it's nullable)
             if (isLoading && listing == null) {
                 CircularProgressIndicator()
             } else if (errorMessage != null) {
-                Text(errorMessage, color = MaterialTheme.colorScheme.error) // errorMessage is String?, so it's fine
+                Text(errorMessage, color = MaterialTheme.colorScheme.error)
             } else if (listing != null) {
-                // 'listing' is smart-cast to non-nullable 'Listing' inside this block.
-                // We can now use 'listing.property' directly.
-
                 val isDeliveryListing = listing.category.contains("Delivery", ignoreCase = true)
                 val isOwner = (currentUserId == listing.ownerID)
                 val hasAccepted = listing.acceptedBy.contains(currentUserId)
@@ -157,7 +154,6 @@ fun ListingDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val categories = listing.category.split(", ").map { it.trim() }
-                        // FIX: Explicitly declare lambda parameter for forEach
                         categories.forEach { category ->
                             CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
                         }
@@ -249,7 +245,6 @@ fun ListingDetailScreen(
                             mapState = mapState,
                             content = {
                                 LaunchedEffect(listing.coord, listing.deliveryCoord) {
-                                    // 'listing' is guaranteed non-null here due to the outer if (listing != null)
                                     val pickupPoint = if (listing.coord.size == 2)
                                         Point.fromLngLat(listing.coord[1], listing.coord[0])
                                     else null
@@ -342,32 +337,11 @@ fun ListingDetailScreen(
                     ) {
                         if (isOwner) {
                             Button(
-                                onClick = { onNavigateToAcceptedRequests(listing.id, listing.ownerID) },
-                                enabled = listing.acceptedBy.isNotEmpty() && !isFulfilled
+                                onClick = { showOffersModal = true }, // NEW: Show the offers modal
+                                // Button is always enabled for owner to view offers
+                                enabled = !isLoading // Only disable if the page itself is loading
                             ) {
                                 Text("View Offers (${listing.acceptedBy.size})")
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            if (!isFulfilled) {
-                                Button(
-                                    onClick = {
-                                        // This will still need enhancement to let the owner choose an acceptor.
-                                        // For now, it fulfills with the first acceptor if available, otherwise current user (owner).
-                                        val acceptorToFulfill = listing.acceptedBy.firstOrNull()
-                                        if (acceptorToFulfill != null) {
-                                            viewModel.fulfillRequest(acceptorToFulfill)
-                                        } else {
-                                            // Handle case where no one has offered help yet or owner wants to self-fulfill
-                                            // Maybe show a dialog asking if owner wants to fulfill themselves?
-                                            // For now, let's only enable if there are actual acceptors.
-                                            // viewModel.fulfillRequest(currentUserId) // Uncomment if self-fulfillment is desired
-                                        }
-                                    },
-                                    // Only enable if there are acceptors and it's not fulfilled
-                                    enabled = !isLoading && listing.acceptedBy.isNotEmpty() && !isFulfilled
-                                ) {
-                                    Text("Fulfill Request")
-                                }
                             }
                         } else { // Not the owner
                             if (!isFulfilled) {
@@ -395,6 +369,8 @@ fun ListingDetailScreen(
                                         }
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
+                                    // Only show "Chat with Owner" if the current user is NOT the owner
+                                    // and they have either offered help OR the request is fulfilled by them
                                     Button(
                                         onClick = { /* TODO: Implement chat with owner */ },
                                         enabled = !isLoading
@@ -408,8 +384,9 @@ fun ListingDetailScreen(
                                     color = Color.Gray,
                                     style = MaterialTheme.typography.labelLarge
                                 )
-                                // If the current user is the one who fulfilled it
-                                if (currentUserId == listing.fulfilledBy) {
+                                // If the current user is the one who fulfilled it, or they had offered help
+                                // they can chat with the owner even if not the fulfiller, to discuss closure
+                                if (currentUserId == listing.fulfilledBy || hasAccepted) {
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Button(
                                         onClick = { /* TODO: Implement chat with owner */ },
@@ -447,6 +424,25 @@ fun ListingDetailScreen(
                         )
                     }
 
+                    // NEW: Offers Modal
+                    if (showOffersModal) {
+                        OffersModal(
+                            acceptedByUids = listing.acceptedBy,
+                            onAcceptOffer = { acceptedUserId ->
+                                viewModel.fulfillRequest(acceptedUserId)
+                                showOffersModal = false // Close modal after accepting
+                            },
+                            onChatWithOfferor = { offerorId ->
+                                // TODO: Implement chat with specific offeror
+                                // For now, just log or show a toast
+                                println("Chat with offeror: $offerorId")
+                                showOffersModal = false // Close modal
+                            },
+                            onDismiss = { showOffersModal = false }
+                        )
+                    }
+
+
                     if (isFulfilled) {
                         Text(
                             "Fulfilled by: ${listing.fulfilledBy ?: "Unknown"}",
@@ -472,6 +468,88 @@ fun ListingDetailScreen(
             }
         }
     }
+}
+
+@Composable
+fun OffersModal(
+    acceptedByUids: List<String>,
+    onAcceptOffer: (String) -> Unit,
+    onChatWithOfferor: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+    var userNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var isLoadingNames by remember { mutableStateOf(false) }
+
+    LaunchedEffect(acceptedByUids) {
+        isLoadingNames = true
+        val fetchedNames = mutableMapOf<String, String>()
+        for (uid in acceptedByUids) {
+            try {
+                val userDoc = db.collection("users").document(uid).get().await()
+                fetchedNames[uid] = userDoc.getString("name") ?: "Unknown User"
+            } catch (e: Exception) {
+                fetchedNames[uid] = "Error fetching name"
+                // Log the error for debugging
+                println("Error fetching user name for $uid: ${e.message}")
+            }
+        }
+        userNames = fetchedNames
+        isLoadingNames = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Offers to Help") },
+        text = {
+            if (isLoadingNames) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (acceptedByUids.isEmpty()) {
+                Text("No one has offered to help yet.")
+            } else {
+                Column {
+                    acceptedByUids.forEach { uid ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(userNames[uid] ?: "Loading...", fontWeight = FontWeight.Medium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { onAcceptOffer(uid) },
+                                    enabled = !isLoadingNames // Disable if names are still loading
+                                ) {
+                                    Text("Accept")
+                                }
+                                Button(
+                                    onClick = { onChatWithOfferor(uid) },
+                                    enabled = !isLoadingNames,
+                                    colors = ButtonDefaults.outlinedButtonColors() // Chat button
+                                ) {
+                                    Text("Chat")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 fun formatTimestampToTimeAgo(timestamp: Timestamp): String {
