@@ -83,7 +83,6 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                         id = document.id,
                         category = (document.get("category") as? List<String>)?.joinToString(", ") ?: "",
                         coord = coordinates,
-                        subtitle = document.getString("subtitle") ?: "",
                         description = document.getString("description") ?: "",
                         imgURL = document.getString("imgURL"),
                         ownerID = document.getString("ownerID") ?: "",

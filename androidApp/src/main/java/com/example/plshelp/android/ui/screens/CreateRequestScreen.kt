@@ -74,7 +74,7 @@ data class CategorySelection(
 @Composable
 fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
-    var subtitle by rememberSaveable { mutableStateOf("") }
+    // var subtitle by rememberSaveable { mutableStateOf("") } // REMOVED: Subtitle state
     var description by rememberSaveable { mutableStateOf("") }
     var price by rememberSaveable { mutableStateOf("") }
     var radius by rememberSaveable { mutableStateOf("") }
@@ -111,7 +111,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
     // Track which fields have errors.
     var titleError by rememberSaveable { mutableStateOf(false) }
-    var subtitleError by rememberSaveable { mutableStateOf(false) }
+    // var subtitleError by rememberSaveable { mutableStateOf(false) } // REMOVED: Subtitle error state
     var descriptionError by rememberSaveable { mutableStateOf(false) }
     var priceError by rememberSaveable { mutableStateOf(false) }
     var radiusError by rememberSaveable { mutableStateOf(false) }
@@ -138,7 +138,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
     val createListing: () -> Unit = {
         titleError = title.isBlank()
-        subtitleError = subtitle.isBlank()
+        // subtitleError = subtitle.isBlank() // REMOVED: Subtitle error check
         descriptionError = description.isBlank()
         priceError = price.isBlank()
         radiusError = radius.isBlank()
@@ -155,7 +155,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             deliveryLocationError = false
         }
 
-        if (!titleError && !subtitleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && !deliveryLocationError && currentUserId.isNotEmpty()) {
+        // Updated validation: removed subtitleError
+        if (!titleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && !deliveryLocationError && currentUserId.isNotEmpty()) {
             isCreating = true
             scope.launch {
                 try {
@@ -165,7 +166,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     if (primaryCoordinates != null && (!isDeliverySelected.value || deliveryCoordinates != null)) {
                         val newListing = hashMapOf(
                             "title" to title,
-                            "subtitle" to subtitle,
+                            // "subtitle" to subtitle, // REMOVED: Subtitle field from Firestore map
                             "description" to description,
                             "price" to price,
                             "category" to categorySelection.selectedCategories.toList(),
@@ -181,7 +182,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         firestore.collection("listings").add(newListing).await()
 
                         title = ""
-                        subtitle = ""
+                        // subtitle = "" // REMOVED: Reset subtitle state
                         description = ""
                         price = ""
                         categorySelection = CategorySelection(mutableSetOf())
@@ -192,7 +193,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         showCategoryError = false
                         errorMessage = null
                         titleError = false
-                        subtitleError = false
+                        // subtitleError = false // REMOVED: Reset subtitle error state
                         descriptionError = false
                         priceError = false
                         radiusError = false
@@ -249,6 +250,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             Text("Title is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
+        // REMOVED: OutlinedTextField for subtitle
+        /*
         OutlinedTextField(
             value = subtitle,
             onValueChange = {
@@ -267,6 +270,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         if (subtitleError) {
             Text("Subtitle is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        */
 
         OutlinedTextField(
             value = description,

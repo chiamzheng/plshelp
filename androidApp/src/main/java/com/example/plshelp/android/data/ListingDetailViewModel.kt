@@ -51,7 +51,6 @@ class ListingDetailViewModel(
                     if (documentSnapshot.exists()) {
                         // Safely retrieve data, providing defaults
                         val title = documentSnapshot.getString("title") ?: "N/A"
-                        val subtitle = documentSnapshot.getString("subtitle") ?: "N/A"
                         val description = documentSnapshot.getString("description") ?: "N/A"
                         val price = documentSnapshot.getString("price") ?: "0.00"
                         val categoryList = documentSnapshot.get("category") as? List<String> ?: emptyList()
@@ -75,7 +74,6 @@ class ListingDetailViewModel(
                             id = documentSnapshot.id,
                             category = category,
                             coord = coord,
-                            subtitle = subtitle,
                             description = description,
                             ownerID = ownerID,
                             ownerName = ownerName,

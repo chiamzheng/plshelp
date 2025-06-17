@@ -1,7 +1,7 @@
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState // Import for animation
+import androidx.compose.animation.core.animateFloatAsState // This can be removed, but harmless if left
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropDown // This can be removed, but harmless if left
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -44,7 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.rotate // This can be removed, but harmless if left
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -208,7 +208,7 @@ fun ListingsScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                         ) {
                             items(filteredListings) { listing ->
-                                ExpandableListingCard(
+                                ListingCard(
                                     listing = listing,
                                     onNavigateToDetail = onNavigateToDetail,
                                     currentLat = currentLat.doubleValue,
@@ -224,7 +224,7 @@ fun ListingsScreen(
         }
     }
 
-    // Filter Modal Bottom Sheet
+    // Filter Modal Bottom Sheet (remains unchanged)
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
@@ -281,22 +281,18 @@ fun ListingsScreen(
 }
 
 @Composable
-fun ExpandableListingCard(
+fun ListingCard( // Renamed from ExpandableListingCard
     listing: Listing,
     onNavigateToDetail: (Listing) -> Unit,
-    currentLat: Double?, // Make nullable
-    currentLon: Double?, // Make nullable
+    currentLat: Double?,
+    currentLon: Double?,
     displayMode: DisplayMode
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
-
-    val rotationDegree by animateFloatAsState(
-        targetValue = if (isExpanded) 180f else 0f,
-        label = "ArrowRotation"
-    )
+    // Removed isExpanded state and animation logic
+    // val isExpanded by remember { mutableStateOf(false) } // Removed
+    // val rotationDegree by animateFloatAsState(...) // Removed
 
     val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
-        // Handle null currentLat/Lon by immediately returning "N/A"
         if (currentLat == null || currentLon == null || listing.coord.size < 2) {
             "N/A"
         } else {
@@ -338,8 +334,9 @@ fun ExpandableListingCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { isExpanded = !isExpanded }
-            .animateContentSize()
+            // Make the entire card clickable to navigate to details
+            .clickable { onNavigateToDetail(listing) }
+        // Removed .animateContentSize() as there's no expansion
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -364,13 +361,7 @@ fun ExpandableListingCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = formattedDistanceOrTime, fontSize = 16.sp)
-                    IconButton(onClick = { isExpanded = !isExpanded }) {
-                        Icon(
-                            Icons.Filled.ArrowDropDown,
-                            contentDescription = if (isExpanded) "Collapse" else "Expand",
-                            modifier = Modifier.rotate(rotationDegree)
-                        )
-                    }
+                    // Removed IconButton with ArrowDropDown as there's no expansion
                 }
             }
             Row(
@@ -384,24 +375,19 @@ fun ExpandableListingCard(
                     CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
                 }
             }
-            if (isExpanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(text = " ${listing.subtitle}", fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Price: $${listing.price}",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
-                    Button(onClick = { onNavigateToDetail(listing) }) {
-                        Text("View Details")
-                    }
-                }
+            // Always show price and remove the 'if (isExpanded)' block
+            Spacer(modifier = Modifier.height(8.dp)) // Add some space below categories
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween, // Keeps price on left, could add other elements later if needed
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Price: $${listing.price}",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp
+                )
+                // Removed "View Details" button as the whole card is now clickable
             }
         }
     }

@@ -61,7 +61,6 @@ fun ProfileScreen(
                 for (document in querySnapshot.documents) {
                     try {
                         val title = document.getString("title") ?: "N/A"
-                        val subtitle = document.getString("subtitle") ?: "N/A"
                         val description = document.getString("description") ?: "N/A"
                         val price = document.getString("price") ?: "0.00"
                         val categoryList = document.get("category") as? List<String> ?: emptyList()
@@ -87,7 +86,6 @@ fun ProfileScreen(
                                 id = document.id,
                                 category = category,
                                 coord = coord,
-                                subtitle = subtitle,
                                 description = description,
                                 ownerID = ownerID,
                                 ownerName = ownerName,
@@ -165,7 +163,7 @@ fun ProfileScreen(
             ) {
                 myListings.forEach { listing ->
                     // Reusing ExpandableListingCard with dummy values
-                    ExpandableListingCard(
+                    ListingCard(
                         listing = listing,
                         onNavigateToDetail = onNavigateToDetail,
                         currentLat = null, // Dummy value
