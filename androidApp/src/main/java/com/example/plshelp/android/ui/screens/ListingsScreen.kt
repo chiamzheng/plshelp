@@ -1,7 +1,5 @@
 package com.example.plshelp.android.ui.screens
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState // This can be removed, but harmless if left
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +17,6 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown // This can be removed, but harmless if left
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -30,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -44,7 +40,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate // This can be removed, but harmless if left
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -59,7 +54,9 @@ import java.util.Date
 import java.util.Locale
 import android.location.Location
 import Listing
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.example.plshelp.android.data.DisplayModeRepository
 
 // New enum to define the display mode
 enum class DisplayMode {
@@ -70,12 +67,10 @@ enum class DisplayMode {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListingsScreen(
-    // <--- THESE ARE THE PARAMETERS PASSED FROM MainActivity
     listings: SnapshotStateList<Listing>, // The list of listings to display
     isLoading: Boolean,                   // Boolean indicating if data is currently loading
-    lastFetchTime: Long,                  // Timestamp of the last data refresh
-    onRefresh: () -> Unit,                // Callback to trigger a data refresh
-    // --- END PASSED PARAMETERS ---
+    lastFetchTime: Long,                  // Timestamp of the last data refresh (STILL HERE)
+    onRefresh: () -> Unit,                // Callback to trigger a data refresh (STILL HERE)
 
     onNavigateToDetail: (Listing) -> Unit // Your existing navigation callback
 ) {
@@ -84,18 +79,18 @@ fun ListingsScreen(
     val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
     val currentLon = remember { mutableDoubleStateOf(LocationManager.targetLon) }
 
-    var displayMode by remember { mutableStateOf(DisplayMode.DISTANCE) }
+    // Retrieve display mode from DataStore (ListingCard still needs it)
+    val displayModeRepository = remember { DisplayModeRepository(context) }
+    val displayMode by displayModeRepository.displayModeFlow.collectAsState(initial = DisplayMode.DISTANCE)
+
     var showFilterSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
-    // State for selected filter categories
-    // Ensure categorySelectionSaver is correctly imported or defined above/in a shared file
     var filterCategorySelection by rememberSaveable(stateSaver = categorySelectionSaver) {
         mutableStateOf(CategorySelection(mutableSetOf()))
     }
 
-    // Predefined categories for filtering
-    val availableFilterCategories = remember { // Use remember to avoid recreating on every recomposition
+    val availableFilterCategories = remember {
         listOf(
             "Urgent", "Helper", "Delivery", "Free", "Others",
             "Invite", "Trade", "Advice", "Event", "Study",
@@ -113,7 +108,6 @@ fun ListingsScreen(
         }
     }
 
-    // Filter the listings based on selected categories
     val filteredListings = remember(listings, filterCategorySelection.selectedCategories) {
         if (filterCategorySelection.selectedCategories.isEmpty()) {
             listings
@@ -132,34 +126,8 @@ fun ListingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Listings") },
-                actions = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val currentTimeMillis = System.currentTimeMillis()
-                        val timeDifferenceSeconds = (currentTimeMillis - lastFetchTime) / 1000
-
-                        val lastUpdatedText = remember(timeDifferenceSeconds) {
-                            when {
-                                timeDifferenceSeconds < 60 -> "$timeDifferenceSeconds secs ago"
-                                timeDifferenceSeconds < 3600 -> "${timeDifferenceSeconds / 60} mins ago"
-                                else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFetchTime))
-                            }
-                        }
-
-                        if (lastFetchTime > 0) {
-                            Text(
-                                text = "Updated: $lastUpdatedText",
-                                fontSize = 10.sp,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                        }
-
-                        // Call the onRefresh callback passed from MainActivity
-                        IconButton(onClick = { onRefresh() }) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                        }
-                    }
-                }
+                // REMOVED: The actions slot content (refresh button and text) moved below
+                actions = { } // Keep actions lambda, but it's empty now
             )
         }
     ) { paddingValues ->
@@ -167,9 +135,9 @@ fun ListingsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween // Keep SpaceBetween
             ) {
                 Button(
                     onClick = { showFilterSheet = true },
@@ -178,19 +146,36 @@ fun ListingsScreen(
                     Text("Filter by")
                 }
 
+                // MOVED & RE-ADDED: Updated status and refresh button here
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Distance", style = MaterialTheme.typography.bodySmall)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Switch(
-                        checked = displayMode == DisplayMode.WALK_TIME,
-                        onCheckedChange = { isChecked ->
-                            displayMode = if (isChecked) DisplayMode.WALK_TIME else DisplayMode.DISTANCE
+                    val currentTimeMillis = System.currentTimeMillis()
+                    val timeDifferenceSeconds = (currentTimeMillis - lastFetchTime) / 1000
+
+                    val lastUpdatedText = remember(timeDifferenceSeconds) {
+                        when {
+                            timeDifferenceSeconds < 60 -> "$timeDifferenceSeconds secs ago"
+                            timeDifferenceSeconds < 3600 -> "${timeDifferenceSeconds / 60} mins ago"
+                            else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFetchTime))
                         }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Walk Time", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    if (lastFetchTime > 0) {
+                        Text(
+                            text = "Updated: $lastUpdatedText",
+                            fontSize = 10.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+
+                    // Call the onRefresh callback passed from MainActivity
+                    IconButton(onClick = { onRefresh() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             Box(modifier = Modifier.fillMaxSize()) {
                 if (isLoading) {
@@ -224,7 +209,6 @@ fun ListingsScreen(
         }
     }
 
-    // Filter Modal Bottom Sheet (remains unchanged)
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
@@ -281,17 +265,13 @@ fun ListingsScreen(
 }
 
 @Composable
-fun ListingCard( // Renamed from ExpandableListingCard
+fun ListingCard(
     listing: Listing,
     onNavigateToDetail: (Listing) -> Unit,
     currentLat: Double?,
     currentLon: Double?,
     displayMode: DisplayMode
 ) {
-    // Removed isExpanded state and animation logic
-    // val isExpanded by remember { mutableStateOf(false) } // Removed
-    // val rotationDegree by animateFloatAsState(...) // Removed
-
     val formattedDistanceOrTime = remember(listing.coord, currentLat, currentLon, displayMode) {
         if (currentLat == null || currentLon == null || listing.coord.size < 2) {
             "N/A"
@@ -334,9 +314,7 @@ fun ListingCard( // Renamed from ExpandableListingCard
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // Make the entire card clickable to navigate to details
             .clickable { onNavigateToDetail(listing) }
-        // Removed .animateContentSize() as there's no expansion
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -361,7 +339,6 @@ fun ListingCard( // Renamed from ExpandableListingCard
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = formattedDistanceOrTime, fontSize = 16.sp)
-                    // Removed IconButton with ArrowDropDown as there's no expansion
                 }
             }
             Row(
@@ -375,11 +352,10 @@ fun ListingCard( // Renamed from ExpandableListingCard
                     CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
                 }
             }
-            // Always show price and remove the 'if (isExpanded)' block
-            Spacer(modifier = Modifier.height(8.dp)) // Add some space below categories
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween, // Keeps price on left, could add other elements later if needed
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -387,7 +363,6 @@ fun ListingCard( // Renamed from ExpandableListingCard
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp
                 )
-                // Removed "View Details" button as the whole card is now clickable
             }
         }
     }

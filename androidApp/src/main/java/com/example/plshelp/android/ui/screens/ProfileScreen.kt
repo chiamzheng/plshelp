@@ -14,16 +14,20 @@ import com.example.plshelp.android.LocalUserId
 import com.example.plshelp.android.LocalUserName
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import Listing // Ensure this is imported for your data class
+import Listing
 import kotlinx.coroutines.tasks.await
-import android.util.Log // For logging
+import android.util.Log
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
+import com.example.plshelp.android.data.DisplayModeRepository
+import kotlinx.coroutines.launch
+import com.google.firebase.auth.FirebaseAuthException // Import for specific exception handling
 
 @Composable
 fun ProfileScreen(
     onSignOut: () -> Unit,
-    onNavigateToDetail: (Listing) -> Unit, // This is still needed
-    modifier: Modifier = Modifier // The modifier will now directly contain the Scaffold's padding
+    onNavigateToDetail: (Listing) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -41,12 +45,15 @@ fun ProfileScreen(
     var showChangePasswordDialog by rememberSaveable { mutableStateOf(false) }
     var showReAuthDialog by rememberSaveable { mutableStateOf(false) }
 
-    // State for My Listings (now a regular mutableStateOf List)
     var myListings by remember { mutableStateOf<List<Listing>>(emptyList()) }
     var isLoadingMyListings by remember { mutableStateOf(true) }
     var myListingsErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Fetch My Listings when the screen is composed
+    val context = LocalContext.current
+    val displayModeRepository = remember { DisplayModeRepository(context) }
+    val displayMode by displayModeRepository.displayModeFlow.collectAsState(initial = DisplayMode.DISTANCE)
+    val scope = rememberCoroutineScope()
+
     LaunchedEffect(currentUserId) {
         if (currentUserId.isNotEmpty()) {
             isLoadingMyListings = true
@@ -103,7 +110,7 @@ fun ProfileScreen(
                         Log.e("ProfileScreen", "Error parsing listing document ${document.id}: ${e.message}", e)
                     }
                 }
-                myListings = fetchedListings // Update the state with the fetched list
+                myListings = fetchedListings
             } catch (e: Exception) {
                 myListingsErrorMessage = "Error fetching your listings: ${e.message}"
                 Log.e("ProfileScreen", "Error fetching user listings: ${e.message}", e)
@@ -118,35 +125,103 @@ fun ProfileScreen(
 
 
     Column(
-        modifier = modifier // The Scaffold padding is already applied via this modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp) // Apply *only* horizontal padding here for the content
-            .verticalScroll(rememberScrollState()), // Make the entire Column scrollable
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Profile Screen", fontSize = 24.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Name: $currentUserName")
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Email: ${user?.email ?: "Email not available"}")
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = { showChangeNameDialog = true }) {
-            Text("Change Name")
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant) // Reverted to adaptive color
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
+            ) {
+                Text(
+                    text = "$currentUserName's Profile",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, // Use onSurfaceVariant for text on surfaceVariant
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Email: ${user?.email ?: "Email not available"}",
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, // Use onSurfaceVariant
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { showChangePasswordDialog = true }) {
-            Text("Change Password")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = { onSignOut() }) {
-            Text("Sign Out")
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = { showChangeNameDialog = true },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+            ) {
+                Text("Change Name", fontSize = 12.sp)
+            }
+            Button(
+                onClick = { showChangePasswordDialog = true },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+            ) {
+                Text("Change Password", fontSize = 12.sp)
+            }
+            Button(
+                onClick = { onSignOut() },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+            ) {
+                Text("Sign Out", fontSize = 12.sp)
+            }
         }
         errorMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text("My Listings", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+
+        // Display Mode Toggle in Profile Screen
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Display Mode", fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Distance", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.width(4.dp))
+                Switch(
+                    checked = displayMode == DisplayMode.WALK_TIME,
+                    onCheckedChange = { isChecked ->
+                        val newMode = if (isChecked) DisplayMode.WALK_TIME else DisplayMode.DISTANCE
+                        scope.launch {
+                            displayModeRepository.saveDisplayMode(newMode)
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Walk Time", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("My Listings", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start).padding(start = 16.dp))
         Spacer(modifier = Modifier.height(8.dp))
 
         if (isLoadingMyListings) {
@@ -156,27 +231,27 @@ fun ProfileScreen(
         } else if (myListings.isEmpty()) {
             Text("You have no listings.", modifier = Modifier.align(Alignment.CenterHorizontally))
         } else {
-            // Use a regular Column and forEach to render all listings directly
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp) // Maintain spacing between cards
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 myListings.forEach { listing ->
-                    // Reusing ExpandableListingCard with dummy values
                     ListingCard(
                         listing = listing,
                         onNavigateToDetail = onNavigateToDetail,
-                        currentLat = null, // Dummy value
-                        currentLon = null,
-                        displayMode = DisplayMode.DISTANCE // Dummy value
+                        currentLat = null, // Still dummy for profile's own listings
+                        currentLon = null, // Still dummy for profile's own listings
+                        displayMode = displayMode // Pass the actual display mode from DataStore
                     )
                 }
             }
         }
-        // Add some bottom padding here to ensure the last listing isn't too close to the edge
         Spacer(modifier = Modifier.height(16.dp))
     }
 
+    // --- Start: Full Dialog Code ---
     if (showChangeNameDialog) {
         AlertDialog(
             onDismissRequest = { showChangeNameDialog = false },
@@ -185,32 +260,39 @@ fun ProfileScreen(
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("New Name") }
+                    label = { Text("New Name") },
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    if (currentUserId.isNotEmpty()) {
-                        db.collection("users").document(currentUserId).update("name", newName)
-                            .addOnSuccessListener {
-                                currentUserName = newName
-                                showChangeNameDialog = false
-                                newName = ""
-                                errorMessage = null
-                            }
-                            .addOnFailureListener { e ->
-                                errorMessage = "Failed to update name: ${e.message}"
-                            }
-                    } else {
-                        errorMessage = "User not logged in."
-                    }
-                }) {
-                    Text("Save")
+                Button(
+                    onClick = {
+                        if (currentUserId.isNotEmpty()) {
+                            db.collection("users").document(currentUserId).update("name", newName)
+                                .addOnSuccessListener {
+                                    currentUserName = newName
+                                    showChangeNameDialog = false
+                                    newName = ""
+                                    errorMessage = null
+                                }
+                                .addOnFailureListener { e ->
+                                    errorMessage = "Failed to update name: ${e.message}"
+                                }
+                        } else {
+                            errorMessage = "User not logged in."
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Save", fontSize = 12.sp)
                 }
             },
             dismissButton = {
-                Button(onClick = { showChangeNameDialog = false }) {
-                    Text("Cancel")
+                Button(
+                    onClick = { showChangeNameDialog = false },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Cancel", fontSize = 12.sp)
                 }
             }
         )
@@ -226,34 +308,42 @@ fun ProfileScreen(
                         value = newPassword,
                         onValueChange = { newPassword = it },
                         label = { Text("New Password") },
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
                         label = { Text("Confirm New Password") },
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (newPassword.isBlank() || confirmPassword.isBlank()) {
-                        errorMessage = "New password and confirm password cannot be empty."
-                    } else if (newPassword == confirmPassword) {
-                        showReAuthDialog = true
-                        errorMessage = null
-                    } else {
-                        errorMessage = "Passwords do not match."
-                    }
-                }) {
-                    Text("Save")
+                Button(
+                    onClick = {
+                        if (newPassword.isBlank() || confirmPassword.isBlank()) {
+                            errorMessage = "New password and confirm password cannot be empty."
+                        } else if (newPassword == confirmPassword) {
+                            showReAuthDialog = true
+                            errorMessage = null
+                        } else {
+                            errorMessage = "Passwords do not match."
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Save", fontSize = 12.sp)
                 }
             },
             dismissButton = {
-                Button(onClick = { showChangePasswordDialog = false }) {
-                    Text("Cancel")
+                Button(
+                    onClick = { showChangePasswordDialog = false },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Cancel", fontSize = 12.sp)
                 }
             }
         )
@@ -268,47 +358,54 @@ fun ProfileScreen(
                     value = passwordToConfirm,
                     onValueChange = { passwordToConfirm = it },
                     label = { Text("Enter your password") },
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    val email = user?.email
-                    if (email != null && passwordToConfirm.isNotBlank()) {
-                        val authCredential =
-                            com.google.firebase.auth.EmailAuthProvider.getCredential(email, passwordToConfirm)
+                Button(
+                    onClick = {
+                        val email = user?.email
+                        if (email != null && passwordToConfirm.isNotBlank()) {
+                            val authCredential =
+                                com.google.firebase.auth.EmailAuthProvider.getCredential(email, passwordToConfirm)
 
-                        user.reauthenticate(authCredential)
-                            .addOnCompleteListener { task ->
-                                if (task.isSuccessful) {
-                                    user.updatePassword(newPassword)
-                                        .addOnCompleteListener { passwordTask ->
-                                            if (passwordTask.isSuccessful) {
-                                                errorMessage = "Password updated successfully."
-                                                showChangePasswordDialog = false
-                                                showReAuthDialog = false
-                                                newPassword = ""
-                                                confirmPassword = ""
-                                                passwordToConfirm = ""
-                                            } else {
-                                                errorMessage =
-                                                    "Failed to update password: ${passwordTask.exception?.message}"
+                            user.reauthenticate(authCredential)
+                                .addOnCompleteListener { task ->
+                                    if (task.isSuccessful) {
+                                        user.updatePassword(newPassword)
+                                            .addOnCompleteListener { passwordTask ->
+                                                if (passwordTask.isSuccessful) {
+                                                    errorMessage = "Password updated successfully."
+                                                    showChangePasswordDialog = false
+                                                    showReAuthDialog = false
+                                                    newPassword = ""
+                                                    confirmPassword = ""
+                                                    passwordToConfirm = ""
+                                                } else {
+                                                    errorMessage =
+                                                        "Failed to update password: ${passwordTask.exception?.message}"
+                                                }
                                             }
-                                        }
-                                } else {
-                                    errorMessage = "Re-authentication failed: ${task.exception?.message}"
+                                    } else {
+                                        errorMessage = "Re-authentication failed: ${task.exception?.message}"
+                                    }
                                 }
-                            }
-                    } else {
-                        errorMessage = "Email or password cannot be empty for re-authentication."
-                    }
-                }) {
-                    Text("Confirm")
+                        } else {
+                            errorMessage = "Email or password cannot be empty for re-authentication."
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Confirm", fontSize = 12.sp)
                 }
             },
             dismissButton = {
-                Button(onClick = { showReAuthDialog = false }) {
-                    Text("Cancel")
+                Button(
+                    onClick = { showReAuthDialog = false },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Cancel", fontSize = 12.sp)
                 }
             }
         )

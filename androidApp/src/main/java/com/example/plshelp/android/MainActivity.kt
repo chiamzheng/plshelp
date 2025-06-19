@@ -83,6 +83,10 @@ class MainActivity : ComponentActivity() {
                 val currentUserId = auth.currentUser?.uid ?: ""
                 val globalUserNameState = remember { mutableStateOf("") }
 
+                val listingsViewModel: ListingsViewModel = viewModel(
+                    factory = ListingsViewModel.Factory(currentUserId)
+                )
+
                 LaunchedEffect(currentUserId) {
                     if (currentUserId.isNotEmpty()) {
                         try {
@@ -106,16 +110,13 @@ class MainActivity : ComponentActivity() {
                             bottomBar = {
                                 BottomNavigationBar(navController = navController)
                             }
-                        ) { paddingValuesFromScaffold -> // Capture the padding values here
+                        ) { paddingValuesFromScaffold ->
                             NavHost(
                                 navController = navController,
                                 startDestination = BottomNavItem.Listings.route,
-                                modifier = Modifier.padding(paddingValuesFromScaffold) // Apply Scaffold padding here
+                                modifier = Modifier.padding(paddingValuesFromScaffold)
                             ) {
                                 composable(BottomNavItem.Listings.route) {
-                                    val listingsViewModel: ListingsViewModel = viewModel(
-                                        factory = ListingsViewModel.Factory(currentUserId)
-                                    )
                                     ListingsScreen(
                                         listings = listingsViewModel.listings.collectAsState().value,
                                         isLoading = listingsViewModel.isLoading.collectAsState().value,

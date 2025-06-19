@@ -62,6 +62,9 @@ dependencies {
     implementation(libs.androidx.foundation.android)
     implementation(libs.coroutinesPlayServices)
     implementation("com.mapbox.maps:android:11.12.2")
-    implementation("com.mapbox.extension:maps-compose:11.12.2")// Compose integration for Mapbox
+    implementation("com.mapbox.extension:maps-compose:11.12.2")
+    implementation(libs.androidx.datastore.core.android)
+    implementation(libs.androidx.datastore.preferences.core.android)
+    implementation("androidx.datastore:datastore-preferences:1.1.7")
     debugImplementation(libs.compose.ui.tooling)
 }
