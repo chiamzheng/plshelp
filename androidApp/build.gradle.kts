@@ -66,5 +66,6 @@ dependencies {
     implementation(libs.androidx.datastore.core.android)
     implementation(libs.androidx.datastore.preferences.core.android)
     implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation(libs.androidx.foundation.android)
     debugImplementation(libs.compose.ui.tooling)
 }

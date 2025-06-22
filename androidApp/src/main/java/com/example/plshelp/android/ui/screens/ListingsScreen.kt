@@ -1,5 +1,8 @@
 package com.example.plshelp.android.ui.screens
 
+import Listing
+import android.location.Location
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,11 +55,11 @@ import com.example.plshelp.android.ui.components.CategoryChip
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.location.Location
-import Listing
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.foundation.border // Import for Modifier.border
+import com.example.plshelp.android.LocalUserId // Import LocalUserId
 import com.example.plshelp.android.data.DisplayModeRepository
+import com.example.plshelp.android.data.ListingsViewModel // Import your ViewModel
 
 // New enum to define the display mode
 enum class DisplayMode {
@@ -67,19 +70,29 @@ enum class DisplayMode {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListingsScreen(
-    listings: SnapshotStateList<Listing>, // The list of listings to display
-    isLoading: Boolean,                   // Boolean indicating if data is currently loading
-    lastFetchTime: Long,                  // Timestamp of the last data refresh (STILL HERE)
-    onRefresh: () -> Unit,                // Callback to trigger a data refresh (STILL HERE)
-
-    onNavigateToDetail: (Listing) -> Unit // Your existing navigation callback
+    viewModel: ListingsViewModel, // Inject the ViewModel here
+    onNavigateToDetail: (Listing) -> Unit
 ) {
     val context = LocalContext.current
+    val currentUserId = LocalUserId.current // Get current user ID
 
     val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
     val currentLon = remember { mutableDoubleStateOf(LocationManager.targetLon) }
 
-    // Retrieve display mode from DataStore (ListingCard still needs it)
+    // Collect states from ViewModel
+    val listings by viewModel.listings.collectAsState() // General listings from DB
+    val isLoading by viewModel.isLoading.collectAsState() // Loading for general listings
+    val lastFetchTime = viewModel.lastFetchTimeState.value // Directly access the State value
+
+    // Collect helper-centric lists from ViewModel (NEW/RENAMED)
+    val listingsUserIsFulfilling by viewModel.listingsUserIsFulfilling.collectAsState()
+    val isLoadingListingsUserIsFulfilling by viewModel.isLoadingListingsUserIsFulfilling.collectAsState()
+
+    val listingsUserAcceptedButNotFulfilling by viewModel.listingsUserAcceptedButNotFulfilling.collectAsState()
+    val isLoadingListingsUserAcceptedButNotFulfilling by viewModel.isLoadingListingsUserAcceptedButNotFulfilling.collectAsState()
+
+
+    // Retrieve display mode from DataStore (still used by ListingCard)
     val displayModeRepository = remember { DisplayModeRepository(context) }
     val displayMode by displayModeRepository.displayModeFlow.collectAsState(initial = DisplayMode.DISTANCE)
 
@@ -108,11 +121,34 @@ fun ListingsScreen(
         }
     }
 
-    val filteredListings = remember(listings, filterCategorySelection.selectedCategories) {
+    // --- NEW FILTERING LOGIC (Using pre-filtered lists from ViewModel) ---
+
+    // 1. Active Requests (Your Offer Accepted) - directly use ViewModel's list
+    val activeRequestsFiltered = listingsUserIsFulfilling
+
+    // 2. Accepted Requests (Awaiting Confirmation) - directly use ViewModel's list
+    val acceptedRequestsFiltered = listingsUserAcceptedButNotFulfilling
+
+    // Deduplicate and filter general listings:
+    // - Exclude listings already shown in active/accepted sections
+    // - Exclude listings owned by the current user (this is already done by ViewModel.listings)
+    // - Only include active listings (this is already done by ViewModel.listings)
+    val displayedListingIds = remember(activeRequestsFiltered, acceptedRequestsFiltered) {
+        (activeRequestsFiltered.map { it.id } + acceptedRequestsFiltered.map { it.id }).toSet()
+    }
+
+    val generalListingsDeduplicated = remember(listings, displayedListingIds) {
+        listings.filter { listing ->
+            listing.id !in displayedListingIds
+        }
+    }
+
+    // Apply category filter to the deduplicated general listings
+    val filteredGeneralListings = remember(generalListingsDeduplicated, filterCategorySelection.selectedCategories) {
         if (filterCategorySelection.selectedCategories.isEmpty()) {
-            listings
+            generalListingsDeduplicated
         } else {
-            listings.filter { listing ->
+            generalListingsDeduplicated.filter { listing ->
                 val listingCategories = listing.category
                     .split(", ")
                     .map { it.trim().lowercase(Locale.getDefault()) }
@@ -122,12 +158,14 @@ fun ListingsScreen(
         }
     }
 
+    // --- END NEW FILTERING LOGIC ---
+
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Listings") },
-                // REMOVED: The actions slot content (refresh button and text) moved below
-                actions = { } // Keep actions lambda, but it's empty now
+                actions = { /* Actions slot is empty as content moved below */ }
             )
         }
     ) { paddingValues ->
@@ -137,7 +175,7 @@ fun ListingsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween // Keep SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Button(
                     onClick = { showFilterSheet = true },
@@ -146,7 +184,7 @@ fun ListingsScreen(
                     Text("Filter by")
                 }
 
-                // MOVED & RE-ADDED: Updated status and refresh button here
+                // Updated status and refresh button
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val currentTimeMillis = System.currentTimeMillis()
                     val timeDifferenceSeconds = (currentTimeMillis - lastFetchTime) / 1000
@@ -168,8 +206,8 @@ fun ListingsScreen(
                         )
                     }
 
-                    // Call the onRefresh callback passed from MainActivity
-                    IconButton(onClick = { onRefresh() }) {
+                    // Call the ViewModel's refreshAllData
+                    IconButton(onClick = { viewModel.refreshListings() }) { // Refresh all listings for simplicity
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                 }
@@ -177,22 +215,38 @@ fun ListingsScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (isLoading) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                } else {
-                    if (filteredListings.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No listings available.", fontSize = 18.sp)
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
-                        ) {
-                            items(filteredListings) { listing ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+            ) {
+                // 1. Active Requests Section (Green Border)
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .border(BorderStroke(2.dp, Color.Green), MaterialTheme.shapes.medium)
+                            .padding(8.dp) // Inner padding
+                    ) {
+                        Text(
+                            text = "Active Requests (Your Offer Accepted)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        if (isLoadingListingsUserIsFulfilling && activeRequestsFiltered.isEmpty()) { // Use appropriate loading state
+                            Box(modifier = Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (activeRequestsFiltered.isEmpty()) {
+                            Text(
+                                text = "No active requests where your offer was accepted.",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = Color.Gray
+                            )
+                        } else {
+                            activeRequestsFiltered.forEach { listing ->
                                 ListingCard(
                                     listing = listing,
                                     onNavigateToDetail = onNavigateToDetail,
@@ -203,6 +257,84 @@ fun ListingsScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
+                    }
+                }
+
+                // 2. Accepted Requests Section (Orange Border)
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .border(BorderStroke(2.dp, Color.Yellow), MaterialTheme.shapes.medium)
+                            .padding(8.dp) // Inner padding
+                    ) {
+                        Text(
+                            text = "Accepted Requests (Awaiting Confirmation)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        if (isLoadingListingsUserAcceptedButNotFulfilling && acceptedRequestsFiltered.isEmpty()) { // Use appropriate loading state
+                            Box(modifier = Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (acceptedRequestsFiltered.isEmpty()) {
+                            Text(
+                                text = "No offers accepted for your listings (or you are pending confirmation).",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = Color.Gray
+                            )
+                        } else {
+                            acceptedRequestsFiltered.forEach { listing ->
+                                ListingCard(
+                                    listing = listing,
+                                    onNavigateToDetail = onNavigateToDetail,
+                                    currentLat = currentLat.doubleValue,
+                                    currentLon = currentLon.doubleValue,
+                                    displayMode = displayMode
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+                    }
+                }
+
+                // 3. All Other Listings Section (General listings, deduplicated and filtered)
+                item {
+                    Text(
+                        text = "All Other Listings",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                if (isLoading && filteredGeneralListings.isEmpty() && activeRequestsFiltered.isEmpty() && acceptedRequestsFiltered.isEmpty()) {
+                    // Show a general loading indicator if all sections are loading AND empty
+                    item {
+                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (filteredGeneralListings.isEmpty() && !isLoading) { // Ensure not just loading
+                    // Only show "No listings" if the general section itself is empty after filtering
+                    item {
+                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No other listings available.", fontSize = 18.sp, color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(filteredGeneralListings) { listing ->
+                        ListingCard(
+                            listing = listing,
+                            onNavigateToDetail = onNavigateToDetail,
+                            currentLat = currentLat.doubleValue,
+                            currentLon = currentLon.doubleValue,
+                            displayMode = displayMode
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -264,6 +396,7 @@ fun ListingsScreen(
     }
 }
 
+// ListingCard remains the same
 @Composable
 fun ListingCard(
     listing: Listing,

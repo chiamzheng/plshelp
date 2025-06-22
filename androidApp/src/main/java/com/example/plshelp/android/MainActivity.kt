@@ -37,11 +37,12 @@ import androidx.navigation.navArgument
 import Listing
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.plshelp.android.data.ListingsViewModel
-
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
-
 import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
+import com.google.firebase.auth.FirebaseUser
+
+// Assuming LocalUserId and LocalUserName are defined in another file within this package.
 
 
 class MainActivity : ComponentActivity() {
@@ -58,6 +59,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
 
+    // This mutable state will hold the current FirebaseUser, and its changes will trigger recomposition.
+    private var _firebaseUser by mutableStateOf<FirebaseUser?>(null)
+
+    // Define AuthStateListener to update our reactive _firebaseUser state
+    private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+        val user = firebaseAuth.currentUser
+        Log.d("UID_DEBUG_AUTH", "AuthStateListener: User changed: ${user?.uid ?: "null"}. Email: ${user?.email ?: "null"}")
+        _firebaseUser = user // Update the reactive state, triggering recomposition
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate called")
@@ -68,43 +79,85 @@ class MainActivity : ComponentActivity() {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
+        // Attach AuthStateListener and initialize _firebaseUser
+        auth.addAuthStateListener(authStateListener)
+        _firebaseUser = auth.currentUser // Initialize with current user on start
+
         setContent {
             MyApplicationTheme {
-                val context = LocalContext.current
                 val navController = rememberNavController()
-                var isLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
+
+                // Observe our reactive _firebaseUser state directly
+                val firebaseUser = _firebaseUser // Directly observe the reactive state
+                val isLoggedIn by remember(firebaseUser) { mutableStateOf(firebaseUser != null) }
+
                 var showRegistration by remember { mutableStateOf(false) }
                 var loginErrorMessage by remember { mutableStateOf<String?>(null) }
                 var registerErrorMessage by remember { mutableStateOf<String?>(null) }
                 var showForgotPassword by remember { mutableStateOf(false) }
                 var forgotPasswordErrorMessage by remember { mutableStateOf<String?>(null) }
 
-                var navigateAfterAuth by remember { mutableStateOf(false) }
-                val currentUserId = auth.currentUser?.uid ?: ""
-                val globalUserNameState = remember { mutableStateOf("") }
+                // This will now ALWAYS be synchronous with our reactive `firebaseUser.uid`
+                val currentUserId: String = remember(firebaseUser) {
+                    val id = firebaseUser?.uid ?: ""
+                    Log.d("UID_DEBUG", "MainActivity recomposition: currentUserId derived from firebaseUser: $id")
+                    id
+                }
 
+                // This MutableState will hold the user's name, provided via CompositionLocal.
+                val globalUserNameMutableState = remember { mutableStateOf("") }
+
+                // --- IMPORTANT LOGGING START ---
+                Log.d("UID_DEBUG", "MainActivity recomposition: Top of setContent block.")
+                Log.d("UID_DEBUG", "  firebaseUser?.uid: ${firebaseUser?.uid ?: "null"}")
+                Log.d("UID_DEBUG", "  isLoggedIn (derived): $isLoggedIn")
+                Log.d("UID_DEBUG", "  currentUserId (derived): $currentUserId")
+                Log.d("UID_DEBUG", "  globalUserNameMutableState.value (before LE): ${globalUserNameMutableState.value}")
+                // --- IMPORTANT LOGGING END ---
+
+
+                // LaunchedEffect to fetch/update the user's name when firebaseUser changes
+                LaunchedEffect(firebaseUser) {
+                    Log.d("UID_DEBUG", "LaunchedEffect(firebaseUser) triggered. Key changed to: ${firebaseUser?.uid ?: "null"}")
+
+                    if (firebaseUser != null) {
+                        val uid = firebaseUser!!.uid
+                        try {
+                            val userDocument = db.collection("users").document(uid).get().await()
+                            val fetchedName = userDocument.getString("name") ?: firebaseUser.displayName ?: "Anonymous"
+                            globalUserNameMutableState.value = fetchedName
+                            Log.d("UID_DEBUG", "Fetched user name from Firestore for UID $uid: $fetchedName")
+                        } catch (e: Exception) {
+                            Log.e("UID_DEBUG", "Error fetching user name for UID $uid: ${e.message}", e)
+                            globalUserNameMutableState.value = firebaseUser.displayName ?: "Anonymous" // Fallback
+                            Log.d("UID_DEBUG", "Falling back to Firebase Auth display name: ${globalUserNameMutableState.value}")
+                        }
+                    } else {
+                        globalUserNameMutableState.value = "" // Clear username if no user
+                        Log.d("UID_DEBUG", "firebaseUser is null (signed out). Setting globalUserNameMutableState to empty.")
+                    }
+                    Log.d("UID_DEBUG", "globalUserNameMutableState.value after LaunchedEffect update: ${globalUserNameMutableState.value}")
+                }
+
+
+                // Key the ViewModel by currentUserId.
                 val listingsViewModel: ListingsViewModel = viewModel(
+                    key = currentUserId,
                     factory = ListingsViewModel.Factory(currentUserId)
                 )
 
-                LaunchedEffect(currentUserId) {
-                    if (currentUserId.isNotEmpty()) {
-                        try {
-                            val userDocument = db.collection("users").document(currentUserId).get().await()
-                            globalUserNameState.value = userDocument.getString("name") ?: "Anonymous"
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "Error fetching username: ${e.message}")
-                            globalUserNameState.value = "Anonymous"
-                        }
-                    } else {
-                        globalUserNameState.value = ""
-                    }
-                }
+                // --- IMPORTANT LOGGING START ---
+                Log.d("UID_DEBUG", "ListingsViewModel instance (hashCode): ${listingsViewModel.hashCode()}")
+                Log.d("UID_DEBUG", "ListingsViewModel created/re-created with ID: $currentUserId")
+                // --- IMPORTANT LOGGING END ---
 
+
+                // Provide the CompositionLocals
                 CompositionLocalProvider(
                     LocalUserId provides currentUserId,
-                    LocalUserName provides globalUserNameState
+                    LocalUserName provides globalUserNameMutableState
                 ){
+                    // The main content based on login state
                     if (isLoggedIn) {
                         Scaffold(
                             bottomBar = {
@@ -118,10 +171,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 composable(BottomNavItem.Listings.route) {
                                     ListingsScreen(
-                                        listings = listingsViewModel.listings.collectAsState().value,
-                                        isLoading = listingsViewModel.isLoading.collectAsState().value,
-                                        lastFetchTime = listingsViewModel.lastFetchTimeState.value,
-                                        onRefresh = { listingsViewModel.refreshListings() },
+                                        viewModel = listingsViewModel,
                                         onNavigateToDetail = { listing ->
                                             navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
                                             navController.navigate("listingDetail/${listing.id}")
@@ -178,9 +228,9 @@ class MainActivity : ComponentActivity() {
                                 composable(BottomNavItem.Profile.route) {
                                     ProfileScreen(
                                         onSignOut = {
+                                            Log.d("UID_DEBUG", "Signing out user... (before auth.signOut())")
                                             auth.signOut()
-                                            isLoggedIn = false
-                                            navigateAfterAuth = true
+                                            Log.d("UID_DEBUG", "Signing out user... (after auth.signOut())")
                                         },
                                         onNavigateToDetail = { listing ->
                                             navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
@@ -190,6 +240,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 composable(BottomNavItem.CreateRequest.route) {
                                     CreateRequestScreen(onNavigateToListings = {
+                                        listingsViewModel.onNewListingCreated()
                                         navController.navigate(BottomNavItem.Listings.route) {
                                             popUpTo(BottomNavItem.Listings.route) {
                                                 inclusive = true
@@ -199,92 +250,116 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                    } else { // Not logged in
-                        if (showRegistration) {
-                            RegistrationScreen(
-                                onRegisterSuccess = {
-                                    showRegistration = false
-                                    navigateAfterAuth = true
-                                    registerErrorMessage = null
-                                },
-                                onRegisterFailure = { errorMessage ->
-                                    registerErrorMessage = errorMessage
-                                },
-                                onRegister = { email, password ->
-                                    auth.createUserWithEmailAndPassword(email, password)
-                                        .addOnCompleteListener(this) { task ->
-                                            if (task.isSuccessful) {
-                                                showRegistration = false
-                                                navigateAfterAuth = true
-                                                registerErrorMessage = null
-                                            } else {
-                                                val exception = task.exception
-                                                if (exception is FirebaseAuthException) {
-                                                    registerErrorMessage = exception.message
-                                                } else {
-                                                    registerErrorMessage = "Registration failed."
-                                                }
-                                            }
-                                        }
-                                },
-                                onBackToLogin = { showRegistration = false },
-                                registerErrorMessage = registerErrorMessage
-                            )
-                        } else if (showForgotPassword) {
-                            ForgotPasswordScreen(
-                                onResetSuccess = {
-                                    showForgotPassword = false
-                                    forgotPasswordErrorMessage = null
-                                },
-                                onResetFailure = { errorMessage ->
-                                    forgotPasswordErrorMessage = errorMessage
-                                },
-                                onBackToLogin = {
-                                    showForgotPassword = false
-                                    forgotPasswordErrorMessage = null
-                                },
-                                forgotPasswordErrorMessage = forgotPasswordErrorMessage
-                            )
-                        } else { // Login Screen
-                            LoginScreen(
-                                onLoginSuccess = {
-                                    isLoggedIn = true
-                                    loginErrorMessage = null
-                                    navigateAfterAuth = true
-                                },
-                                onLoginFailure = { errorMessage ->
-                                    loginErrorMessage = errorMessage
-                                },
-                                onRegisterClick = { showRegistration = true },
-                                onLogin = { email, password ->
-                                    auth.signInWithEmailAndPassword(email, password)
-                                        .addOnCompleteListener(this) { task ->
-                                            if (task.isSuccessful) {
-                                                isLoggedIn = true
-                                                loginErrorMessage = null
-                                                navigateAfterAuth = true
-                                            } else {
-                                                loginErrorMessage = "Invalid email or password."
-                                            }
-                                        }
-                                },
-                                loginErrorMessage = loginErrorMessage,
-                                onForgotPasswordClick = {
-                                    showForgotPassword = true
-                                    forgotPasswordErrorMessage = null
+                    } else { // Not logged in: Show auth screens
+                        // This LaunchedEffect ensures navigation to the login screen when isLoggedIn becomes false.
+                        LaunchedEffect(isLoggedIn) {
+                            if (!isLoggedIn) {
+                                val currentRoute = navController.currentBackStackEntry?.destination?.route
+                                val isAlreadyOnAuthScreen = when (currentRoute) {
+                                    "login", "registration", "forgotPassword" -> true
+                                    else -> false
                                 }
-                            )
-                        }
-                    }
-
-                    if (navigateAfterAuth) {
-                        LaunchedEffect(Unit) {
-                            navController.navigate(BottomNavItem.Listings.route) {
-                                popUpTo(0) {
-                                    inclusive = true
+                                if (!isAlreadyOnAuthScreen) {
+                                    Log.d("UID_DEBUG", "Not logged in. Navigating to login screen.")
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true } // Clear back stack
+                                    }
+                                } else {
+                                    Log.d("UID_DEBUG", "Not logged in, but already on auth screen ($currentRoute). No navigation needed.")
                                 }
                             }
-                            navigateAfterAuth = false
+                        }
+
+                        // NavHost for auth screens
+                        NavHost(
+                            navController = navController,
+                            startDestination = if (showRegistration) "registration" else if (showForgotPassword) "forgotPassword" else "login"
+                        ) {
+                            composable("login") {
+                                LoginScreen(
+                                    onLoginSuccess = {
+                                        loginErrorMessage = null
+                                        Log.d("UID_DEBUG", "Login success callback triggered. AuthStateListener will update FirebaseUser.")
+                                    },
+                                    onLoginFailure = { errorMessage ->
+                                        loginErrorMessage = errorMessage
+                                    },
+                                    onRegisterClick = {
+                                        showRegistration = true
+                                        navController.navigate("registration") { popUpTo("login") { inclusive = true } }
+                                    },
+                                    onLogin = { email, password ->
+                                        auth.signInWithEmailAndPassword(email, password)
+                                            // *** FIX: Use this@MainActivity for the Activity context ***
+                                            .addOnCompleteListener(this@MainActivity) { task ->
+                                                if (task.isSuccessful) {
+                                                    Log.d("UID_DEBUG", "Auth signInWithEmailAndPassword success. AuthStateListener will process.")
+                                                } else {
+                                                    loginErrorMessage = "Invalid email or password."
+                                                    Log.e("UID_DEBUG", "Auth signInWithEmailAndPassword failed: ${task.exception?.message}")
+                                                }
+                                            }
+                                    },
+                                    loginErrorMessage = loginErrorMessage,
+                                    onForgotPasswordClick = {
+                                        showForgotPassword = true
+                                        navController.navigate("forgotPassword") { popUpTo("login") { inclusive = true } }
+                                    }
+                                )
+                            }
+                            composable("registration") {
+                                RegistrationScreen(
+                                    onRegisterSuccess = {
+                                        showRegistration = false
+                                        registerErrorMessage = null
+                                        Log.d("UID_DEBUG", "Registration success callback. AuthStateListener will update FirebaseUser.")
+                                    },
+                                    onRegisterFailure = { errorMessage ->
+                                        registerErrorMessage = errorMessage
+                                    },
+                                    onRegister = { email, password ->
+                                        auth.createUserWithEmailAndPassword(email, password)
+                                            // *** FIX: Use this@MainActivity for the Activity context ***
+                                            .addOnCompleteListener(this@MainActivity) { task ->
+                                                if (task.isSuccessful) {
+                                                    Log.d("UID_DEBUG", "Auth createUserWithEmailAndPassword success. AuthStateListener will process.")
+                                                } else {
+                                                    val exception = task.exception
+                                                    if (exception is FirebaseAuthException) {
+                                                        registerErrorMessage = exception.message
+                                                    } else {
+                                                        registerErrorMessage = "Registration failed."
+                                                    }
+                                                    Log.e("UID_DEBUG", "Auth createUserWithEmailAndPassword failed: ${task.exception?.message}")
+                                                }
+                                            }
+                                    },
+                                    onBackToLogin = {
+                                        showRegistration = false
+                                        navController.popBackStack()
+                                    },
+                                    registerErrorMessage = registerErrorMessage
+                                )
+                            }
+                            composable("forgotPassword") {
+                                ForgotPasswordScreen(
+                                    onResetSuccess = {
+                                        showForgotPassword = false
+                                        forgotPasswordErrorMessage = null
+                                        Toast.makeText(this@MainActivity, "Password reset email sent. Check your inbox.", Toast.LENGTH_LONG).show()
+                                        navController.popBackStack() // Go back to login after reset
+                                    },
+                                    onResetFailure = { errorMessage ->
+                                        forgotPasswordErrorMessage = errorMessage
+                                    },
+                                    onBackToLogin = {
+                                        showForgotPassword = false
+                                        forgotPasswordErrorMessage = null
+                                        navController.popBackStack()
+                                    },
+                                    forgotPasswordErrorMessage = forgotPasswordErrorMessage
+                                )
+                            }
                         }
                     }
                 }
@@ -292,6 +367,12 @@ class MainActivity : ComponentActivity() {
         }
 
         checkForegroundLocationPermission()
+    }
+
+    // Remove the listener when the activity is destroyed to prevent memory leaks
+    override fun onDestroy() {
+        super.onDestroy()
+        auth.removeAuthStateListener(authStateListener)
     }
 
     @Composable

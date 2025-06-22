@@ -1,3 +1,4 @@
+// ListingDetailScreen.kt
 package com.example.plshelp.android.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
@@ -66,7 +67,7 @@ import kotlin.math.min
 import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.extension.compose.rememberMapState
 import com.example.plshelp.android.LocalUserId
-import com.google.firebase.firestore.FirebaseFirestore // Added for OffersModal
+import com.google.firebase.firestore.FirebaseFirestore
 
 @Composable
 fun ListingDetailScreen(
@@ -98,16 +99,18 @@ fun ListingDetailScreen(
     val locationPainter = rememberVectorPainter(image = Icons.Default.LocationOn)
     val markerIconId = rememberIconImage(key = "location_marker", painter = locationPainter)
 
+    // Retrieve currentUserId from CompositionLocal here
     val currentUserId = LocalUserId.current
 
     var showUnacceptConfirmationDialog by remember { mutableStateOf(false) }
-    var showOffersModal by remember { mutableStateOf(false) } // NEW STATE for showing offers modal
+    var showOffersModal by remember { mutableStateOf(false) }
+    var showMarkCompletedConfirmationDialog by remember { mutableStateOf(false) } // New state for mark as completed
 
     Scaffold { paddingValuesFromScaffold ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValuesFromScaffold),
+                .padding(paddingValuesFromScaffold), // Corrected this line
             contentAlignment = Alignment.Center
         ) {
             if (isLoading && listing == null) {
@@ -118,7 +121,9 @@ fun ListingDetailScreen(
                 val isDeliveryListing = listing.category.contains("Delivery", ignoreCase = true)
                 val isOwner = (currentUserId == listing.ownerID)
                 val hasAccepted = listing.acceptedBy.contains(currentUserId)
-                val isFulfilled = listing.fulfilledBy != null
+                val isFulfilledBySomeone = !listing.fulfilledBy.isNullOrEmpty() // If anyone has been selected
+                val isFulfilledByCurrentUser = listing.fulfilledBy?.contains(currentUserId) == true // If current user is the one selected
+                val isRequestCompleted = listing.status == "fulfilled" // Check the actual status field
 
                 Column(
                     modifier = Modifier
@@ -330,47 +335,83 @@ fun ListingDetailScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Buttons based on user role and listing status
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isOwner) {
-                            Button(
-                                onClick = { showOffersModal = true }, // NEW: Show the offers modal
-                                // Button is always enabled for owner to view offers
-                                enabled = !isLoading // Only disable if the page itself is loading
-                            ) {
-                                Text("View Offers (${listing.acceptedBy.size})")
-                            }
-                        } else { // Not the owner
-                            if (!isFulfilled) {
-                                if (!hasAccepted) {
+                            if (isRequestCompleted) { // Status is "fulfilled"
+                                Text(
+                                    "Request Fulfilled",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                // Optionally show who fulfilled if available
+                                if (isFulfilledBySomeone) {
+                                    val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
+                                    Text(
+                                        "By: $fulfillers",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Button(
-                                        onClick = { viewModel.acceptRequest(currentUserId) },
+                                        onClick = { /* TODO: Implement chat with fulfiller(s) */ },
                                         enabled = !isLoading
                                     ) {
-                                        Text("Offer to Help")
+                                        Text("Chat with Fulfiller(s)")
                                     }
-                                } else { // User has offered to help
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                }
+                            } else { // Status is "active"
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Button(
+                                        onClick = { showOffersModal = true },
+                                        enabled = !isLoading
+                                    ) {
+                                        Text("View Offers (${listing.acceptedBy.size})")
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp)) // Add some space
+
+                                    // Corrected Logic: Only show "Assigned to" and "Mark as Completed" if someone is in fulfilledBy
+                                    // NO "Request Active" text if fulfilledBy is empty for the owner here.
+                                    if (isFulfilledBySomeone) { // If 'fulfilledBy' is NOT empty/null
+                                        val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
                                         Text(
-                                            "Help Offered",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            style = MaterialTheme.typography.labelLarge
+                                            "Assigned to: $fulfillers",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Button(
-                                            onClick = { showUnacceptConfirmationDialog = true },
-                                            enabled = !isLoading,
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                        ) {
-                                            Text("Withdraw Offer")
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(
+                                                onClick = { showMarkCompletedConfirmationDialog = true },
+                                                enabled = !isLoading,
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                                            ) {
+                                                Text("Mark as Completed")
+                                            }
+                                            Button(
+                                                onClick = { /* TODO: Implement chat with fulfiller(s) */ },
+                                                enabled = !isLoading
+                                            ) {
+                                                Text("Chat with Fulfiller(s)")
+                                            }
                                         }
                                     }
+                                    // Removed the else block that displayed "Request Active" for owner when fulfilledBy is empty.
+                                }
+                            }
+                        } else { // Not the owner
+                            if (isRequestCompleted) {
+                                Text(
+                                    "Request Fulfilled",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                if (isFulfilledByCurrentUser || hasAccepted) {
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    // Only show "Chat with Owner" if the current user is NOT the owner
-                                    // and they have either offered help OR the request is fulfilled by them
                                     Button(
                                         onClick = { /* TODO: Implement chat with owner */ },
                                         enabled = !isLoading
@@ -378,21 +419,46 @@ fun ListingDetailScreen(
                                         Text("Chat with Owner")
                                     }
                                 }
-                            } else { // Request is fulfilled
-                                Text(
-                                    "Request Fulfilled",
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                // If the current user is the one who fulfilled it, or they had offered help
-                                // they can chat with the owner even if not the fulfiller, to discuss closure
-                                if (currentUserId == listing.fulfilledBy || hasAccepted) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = { /* TODO: Implement chat with owner */ },
-                                        enabled = !isLoading
-                                    ) {
-                                        Text("Chat with Owner")
+                            } else { // Request is active (status == "active")
+                                if (hasAccepted) { // User has offered to help
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            if (isFulfilledByCurrentUser) "You are selected!" else "Help Offered",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(
+                                                onClick = { showUnacceptConfirmationDialog = true },
+                                                enabled = !isLoading && !isFulfilledByCurrentUser, // Cannot withdraw if selected
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                            ) {
+                                                Text("Withdraw Offer")
+                                            }
+                                            Button(
+                                                onClick = { /* TODO: Implement chat with owner */ },
+                                                enabled = !isLoading
+                                            ) {
+                                                Text("Chat with Owner")
+                                            }
+                                        }
+                                    }
+                                } else { // User has NOT offered to help
+                                    if (!isFulfilledBySomeone) { // Nobody has been selected yet
+                                        Button(
+                                            onClick = { viewModel.acceptRequest(currentUserId) },
+                                            enabled = !isLoading
+                                        ) {
+                                            Text("Offer to Help")
+                                        }
+                                    } else { // Someone else has been selected to fulfill, but not yet completed
+                                        Text(
+                                            "Request Active (Assigned)",
+                                            color = Color.DarkGray,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
                                     }
                                 }
                             }
@@ -424,33 +490,47 @@ fun ListingDetailScreen(
                         )
                     }
 
-                    // NEW: Offers Modal
-                    if (showOffersModal) {
+                    // Dialog for owner to mark as completed
+                    if (showMarkCompletedConfirmationDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showMarkCompletedConfirmationDialog = false },
+                            title = { Text("Mark Request as Completed") },
+                            text = { Text("Are you sure you want to mark this request as completed? This action cannot be undone.") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        // Pass the currentUserId here
+                                        viewModel.markRequestAsCompleted(currentUserId)
+                                        showMarkCompletedConfirmationDialog = false
+                                    },
+                                    enabled = !isLoading
+                                ) {
+                                    Text("Confirm Complete")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showMarkCompletedConfirmationDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
+
+                    // Offers Modal (only shown if owner and request not yet completed)
+                    // The condition `!isRequestCompleted` ensures this modal is only accessible when the request is still active.
+                    if (showOffersModal && !isRequestCompleted) {
                         OffersModal(
                             acceptedByUids = listing.acceptedBy,
+                            alreadyFulfilledBy = listing.fulfilledBy, // Pass the already selected fulfillers
                             onAcceptOffer = { acceptedUserId ->
                                 viewModel.fulfillRequest(acceptedUserId)
                                 showOffersModal = false // Close modal after accepting
                             },
                             onChatWithOfferor = { offerorId ->
-                                // TODO: Implement chat with specific offeror
-                                // For now, just log or show a toast
                                 println("Chat with offeror: $offerorId")
                                 showOffersModal = false // Close modal
                             },
                             onDismiss = { showOffersModal = false }
-                        )
-                    }
-
-
-                    if (isFulfilled) {
-                        Text(
-                            "Fulfilled by: ${listing.fulfilledBy ?: "Unknown"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 8.dp)
                         )
                     }
 
@@ -473,6 +553,7 @@ fun ListingDetailScreen(
 @Composable
 fun OffersModal(
     acceptedByUids: List<String>,
+    alreadyFulfilledBy: List<String>?, // New parameter to check selected fulfillers
     onAcceptOffer: (String) -> Unit,
     onChatWithOfferor: (String) -> Unit,
     onDismiss: () -> Unit
@@ -490,7 +571,6 @@ fun OffersModal(
                 fetchedNames[uid] = userDoc.getString("name") ?: "Unknown User"
             } catch (e: Exception) {
                 fetchedNames[uid] = "Error fetching name"
-                // Log the error for debugging
                 println("Error fetching user name for $uid: ${e.message}")
             }
         }
@@ -516,28 +596,39 @@ fun OffersModal(
             } else {
                 Column {
                     acceptedByUids.forEach { uid ->
+                        val isAlreadySelected = alreadyFulfilledBy?.contains(uid) == true
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(userNames[uid] ?: "Loading...", fontWeight = FontWeight.Medium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = userNames[uid] ?: uid,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            if (isAlreadySelected) {
+                                Text(
+                                    "Selected",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            } else {
                                 Button(
                                     onClick = { onAcceptOffer(uid) },
-                                    enabled = !isLoadingNames // Disable if names are still loading
+                                    enabled = !isLoadingNames
                                 ) {
-                                    Text("Accept")
+                                    Text("Select")
                                 }
-                                Button(
-                                    onClick = { onChatWithOfferor(uid) },
-                                    enabled = !isLoadingNames,
-                                    colors = ButtonDefaults.outlinedButtonColors() // Chat button
-                                ) {
-                                    Text("Chat")
-                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { onChatWithOfferor(uid) },
+                                enabled = !isLoadingNames
+                            ) {
+                                Text("Chat")
                             }
                         }
                     }
@@ -552,26 +643,22 @@ fun OffersModal(
     )
 }
 
+// Helper function to format timestamp to time ago
 fun formatTimestampToTimeAgo(timestamp: Timestamp): String {
-    val date = timestamp.toDate()
     val now = Date()
-    val diff = now.time - date.time
+    val then = timestamp.toDate()
+    val diffMillis = now.time - then.time
 
-    val seconds = TimeUnit.MILLISECONDS.toSeconds(diff)
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
-    val hours = TimeUnit.MILLISECONDS.toHours(diff)
-    val days = TimeUnit.MILLISECONDS.toDays(diff)
-    val weeks = days / 7
-    val months = days / 30
-    val years = days / 365
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(diffMillis)
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(diffMillis)
+    val hours = TimeUnit.MILLISECONDS.toHours(diffMillis)
+    val days = TimeUnit.MILLISECONDS.toDays(diffMillis)
 
     return when {
-        years > 0 -> "$years year${if (years > 1) "s" else ""}"
-        months > 0 -> "$months month${if (months > 1) "s" else ""}"
-        weeks > 0 -> "$weeks week${if (weeks > 1) "s" else ""}"
-        days > 0 -> "$days day${if (days > 1) "s" else ""}"
-        hours > 0 -> "$hours hour${if (hours > 1) "s" else ""}"
-        minutes > 0 -> "$minutes minute${if (minutes > 1) "s" else ""}"
-        else -> "$seconds second${if (seconds > 1) "s" else ""}"
+        seconds < 60 -> "$seconds seconds"
+        minutes < 60 -> "$minutes minutes"
+        hours < 24 -> "$hours hours"
+        days < 7 -> "$days days"
+        else -> "${days / 7} weeks" // Simple approximation for weeks
     }
 }

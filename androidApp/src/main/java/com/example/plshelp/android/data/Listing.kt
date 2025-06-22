@@ -18,5 +18,5 @@ data class Listing(
     val status: String = "active", // Listing status (e.g., active, fulfilled, cancelled)
     val deliveryCoord: List<Double>? = null, // Optional Delivery Location (Lat, Lng)
     val acceptedBy: List<String> = emptyList(), // NEW: List of UIDs who accepted
-    val fulfilledBy: String? = null // NEW: UID of the user who fulfilled the request
+    val fulfilledBy: List<String>? = emptyList()  // NEW: UID of the user who fulfilled the request
 ) : Parcelable // Implement Parcelable
