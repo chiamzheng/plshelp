@@ -69,7 +69,7 @@ class ListingDetailViewModel(
                     val status = documentSnapshot.getString("status") ?: "active" // Ensure status is read
 
                     val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
-                    val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String>
+                    val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String> ?: emptyList()
 
                     listing = Listing(
                         id = documentSnapshot.id,
@@ -124,7 +124,7 @@ class ListingDetailViewModel(
                         val status = documentSnapshot.getString("status") ?: "active" // Ensure status is read
 
                         val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
-                        val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String>
+                        val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String> ?: emptyList()
 
                         listing = Listing(
                             id = documentSnapshot.id,

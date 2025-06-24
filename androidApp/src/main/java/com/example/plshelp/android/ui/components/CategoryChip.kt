@@ -28,19 +28,21 @@ fun CategoryChip(
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         categories.forEach { category ->
             val originalColor = when (category) {
-                "urgent" -> Color.Red
-                "helper" -> Color.Blue
-                "delivery" -> Color(0xFF4CAF50) // Green
-                "free" -> Color(0xFFFF9800) // Orange
-                "others" -> Color.Gray
-                "invite" -> Color(0xFF00b0b3) // Cyan
-                "trade" -> Color(0xFF9C27B0) // Purple
-                "advice" -> Color(0xFF607D8B) // Blue Grey
-                "event" -> Color(0xFFFFC107) // Amber
-                "study" -> Color(0xFF2196F3) // Light Blue
-                "borrow" -> Color(0xFFf305ff) // Pink
-                "food" -> Color(0xFFAFBB00) // Lime
-                else -> Color.LightGray
+                /*
+                "urgent" -> Color(0xFFE57373)
+                "helper" -> Color(0xFF81D4FA) // Soft Light Blue
+                "delivery" -> Color(0xFFA5D6A7) // Soft Green
+                "free" -> Color(0xFFFFCC80) // Soft Orange
+                "others" -> Color(0xFFB0BEC5) // Soft Blue Grey
+                "invite" -> Color(0xFF80DEEA) // Soft Cyan
+                "trade" -> Color(0xFFCE93D8) // Soft Purple
+                "advice" -> Color(0xFF398f86) // Lighter Grey
+                "event" -> Color(0xFFccab41) // Soft Amber
+                "study" -> Color(0xFF90CAF9) // Softer Blue
+                "borrow" -> Color(0xFFF48FB1) // Soft Pink
+                "food" -> Color(0xFFa3ba88) // Softer Lime
+                */
+                else -> Color.Gray
             }
             val backgroundColor = if (isSelected) originalColor else Color.LightGray
             val text = when (category) {
@@ -62,16 +64,16 @@ fun CategoryChip(
             }
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(color = backgroundColor) // Determine background based on isSelected
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = 6.dp, vertical = 0.dp)
                     .then(if (onCategoryClick != {}) Modifier.clickable { onCategoryClick(categoryString) } else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = text,
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }

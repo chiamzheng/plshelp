@@ -34,7 +34,12 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import Listing
+import Listing // Assuming your Listing data class is available here or correctly imported
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.plshelp.android.data.ListingsViewModel
 import com.google.firebase.firestore.FirebaseFirestore
@@ -42,7 +47,6 @@ import kotlinx.coroutines.tasks.await
 import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
 import com.google.firebase.auth.FirebaseUser
 
-// Assuming LocalUserId and LocalUserName are defined in another file within this package.
 
 
 class MainActivity : ComponentActivity() {
@@ -140,11 +144,24 @@ class MainActivity : ComponentActivity() {
                 }
 
 
-                // Key the ViewModel by currentUserId.
+                // --- THE FIX: Instantiate the ListingsViewModel here, outside the NavHost. ---
+                // It will be scoped to the MainActivity's content (or AppScreen if you had one).
                 val listingsViewModel: ListingsViewModel = viewModel(
+                    // Key the ViewModel by currentUserId. This ensures a new VM is created
+                    // if the user ID *fundamentally changes* (e.g., a different user logs in).
                     key = currentUserId,
                     factory = ListingsViewModel.Factory(currentUserId)
                 )
+
+                // --- IMPORTANT: Trigger the initial refresh here, tied to the ViewModel's existence ---
+                LaunchedEffect(listingsViewModel) {
+                    // This LaunchedEffect will run only once when the listingsViewModel instance is created
+                    // (or re-created if currentUserId changes).
+                    Log.d("UID_DEBUG", "LaunchedEffect(listingsViewModel) triggered. ViewModel hash: ${listingsViewModel.hashCode()}. Triggering refresh.")
+                    listingsViewModel.refreshListings()
+                }
+                // --- END FIX ---
+
 
                 // --- IMPORTANT LOGGING START ---
                 Log.d("UID_DEBUG", "ListingsViewModel instance (hashCode): ${listingsViewModel.hashCode()}")
@@ -171,7 +188,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 composable(BottomNavItem.Listings.route) {
                                     ListingsScreen(
-                                        viewModel = listingsViewModel,
+                                        viewModel = listingsViewModel, // <--- Pass the SAME hoisted ViewModel instance
                                         onNavigateToDetail = { listing ->
                                             navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
                                             navController.navigate("listingDetail/${listing.id}")
@@ -240,6 +257,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 composable(BottomNavItem.CreateRequest.route) {
                                     CreateRequestScreen(onNavigateToListings = {
+                                        // This is a good place to trigger refresh for the listings screen
                                         listingsViewModel.onNewListingCreated()
                                         navController.navigate(BottomNavItem.Listings.route) {
                                             popUpTo(BottomNavItem.Listings.route) {
@@ -383,15 +401,35 @@ class MainActivity : ComponentActivity() {
             BottomNavItem.Profile
         )
 
-        NavigationBar {
+        NavigationBar(
+            // You can set overall padding/modifier for the whole NavigationBar if needed
+            modifier = Modifier.height(65.dp)
+        ) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
             items.forEach { item ->
+                val isSelected = currentRoute == item.route
                 NavigationBarItem(
-                    icon = { Icon(imageVector = item.icon, contentDescription = item.label) },
-                    label = { Text(item.label) },
-                    selected = currentRoute == item.route,
+                    icon = {
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = item.label,
+                            // --- Customize Icon Size ---
+                            modifier = Modifier.size(24.dp) // Adjust icon size here (e.g., 24.dp, 32.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            item.label,
+                            // --- Customize Text Size ---
+                            fontSize = 10.sp, // Adjust font size here
+                            lineHeight = 10.sp,
+                            // You can also change fontWeight, color, etc. based on selection
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    selected = isSelected,
                     onClick = {
                         navController.navigate(item.route) {
                             navController.graph.startDestinationRoute?.let { route ->
@@ -402,7 +440,17 @@ class MainActivity : ComponentActivity() {
                             launchSingleTop = true
                             restoreState = true
                         }
-                    }
+                    },
+                    // --- Customize Item Padding ---
+                    modifier = Modifier.padding(vertical = 0.dp), // Adjust vertical padding for each item
+                    // You can also adjust the colors for selected/unselected states
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.inversePrimary.copy(alpha = 0.2f) // Example indicator color
+                    )
                 )
             }
         }
