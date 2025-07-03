@@ -333,6 +333,19 @@ class ListingDetailViewModel(
         }
     }
 
+    // To fetch a user's name given their UID
+    fun getUserName(uid: String, onNameFetched: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val userDoc = firestore.collection("users").document(uid).get().await()
+                val name = userDoc.getString("name") ?: "Unknown User"
+                onNameFetched(name)
+            } catch (e: Exception) {
+                Log.e("ListingDetailViewModel", "Error fetching user name for $uid: ${e.message}", e)
+                onNameFetched("Unknown User") // Fallback in case of error
+            }
+        }
+    }
     override fun onCleared() {
         super.onCleared()
         // No explicit listener removal here as addSnapshotListener is active and typically tied to ViewModel lifecycle

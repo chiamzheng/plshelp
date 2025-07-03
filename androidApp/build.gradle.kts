@@ -68,4 +68,5 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation(libs.androidx.foundation.android)
     debugImplementation(libs.compose.ui.tooling)
+    implementation ("com.google.code.gson:gson:2.10.1") // For serializing List<String>
 }

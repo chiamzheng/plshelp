@@ -8,11 +8,12 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.padding // Keep this for applying scaffold padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,7 +22,7 @@ import com.example.plshelp.android.data.LocationService
 import com.example.plshelp.android.ui.navigation.BottomNavItem
 import com.example.plshelp.android.ui.screens.CreateRequestScreen
 import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
-import com.example.plshelp.android.ui.screens.ListingDetailScreen
+import com.example.plshelp.android.ui.screens.ListingDetailScreen // Keep this import
 import com.example.plshelp.android.ui.screens.ListingsScreen
 import com.example.plshelp.android.ui.screens.LoginScreen
 import com.example.plshelp.android.ui.screens.MyApplicationTheme
@@ -34,9 +35,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import Listing // Assuming your Listing data class is available here or correctly imported
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
+import Listing // Correct import for your Listing data class
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,7 +45,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
 import com.google.firebase.auth.FirebaseUser
-
+import com.example.plshelp.android.ui.screens.ChatScreen // Import the ChatScreen
+import com.example.plshelp.android.data.ChatType // Import the ChatType enum
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken // Required for Gson to deserialize List<String>
+// No TopAppBar icons needed here anymore
+// import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 
 class MainActivity : ComponentActivity() {
@@ -61,38 +65,36 @@ class MainActivity : ComponentActivity() {
         }
 
     private lateinit var auth: FirebaseAuth
-    private lateinit var db: FirebaseFirestore
+    private lateinit var var_db: FirebaseFirestore // Renamed to avoid confusion
 
-    // This mutable state will hold the current FirebaseUser, and its changes will trigger recomposition.
     private var _firebaseUser by mutableStateOf<FirebaseUser?>(null)
 
-    // Define AuthStateListener to update our reactive _firebaseUser state
     private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
         val user = firebaseAuth.currentUser
         Log.d("UID_DEBUG_AUTH", "AuthStateListener: User changed: ${user?.uid ?: "null"}. Email: ${user?.email ?: "null"}")
-        _firebaseUser = user // Update the reactive state, triggering recomposition
+        _firebaseUser = user
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate called")
 
+        // Keep this line REMOVED: WindowCompat.setDecorFitsSystemWindows(window, false)
+
         val serviceIntent = Intent(this, LocationService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
 
         auth = FirebaseAuth.getInstance()
-        db = FirebaseFirestore.getInstance()
+        var_db = FirebaseFirestore.getInstance() // Initialize here
 
-        // Attach AuthStateListener and initialize _firebaseUser
         auth.addAuthStateListener(authStateListener)
-        _firebaseUser = auth.currentUser // Initialize with current user on start
+        _firebaseUser = auth.currentUser
 
         setContent {
             MyApplicationTheme {
                 val navController = rememberNavController()
 
-                // Observe our reactive _firebaseUser state directly
-                val firebaseUser = _firebaseUser // Directly observe the reactive state
+                val firebaseUser = _firebaseUser
                 val isLoggedIn by remember(firebaseUser) { mutableStateOf(firebaseUser != null) }
 
                 var showRegistration by remember { mutableStateOf(false) }
@@ -101,100 +103,90 @@ class MainActivity : ComponentActivity() {
                 var showForgotPassword by remember { mutableStateOf(false) }
                 var forgotPasswordErrorMessage by remember { mutableStateOf<String?>(null) }
 
-                // This will now ALWAYS be synchronous with our reactive `firebaseUser.uid`
                 val currentUserId: String = remember(firebaseUser) {
                     val id = firebaseUser?.uid ?: ""
                     Log.d("UID_DEBUG", "MainActivity recomposition: currentUserId derived from firebaseUser: $id")
                     id
                 }
 
-                // This MutableState will hold the user's name, provided via CompositionLocal.
                 val globalUserNameMutableState = remember { mutableStateOf("") }
 
-                // --- IMPORTANT LOGGING START ---
-                Log.d("UID_DEBUG", "MainActivity recomposition: Top of setContent block.")
-                Log.d("UID_DEBUG", "  firebaseUser?.uid: ${firebaseUser?.uid ?: "null"}")
-                Log.d("UID_DEBUG", "  isLoggedIn (derived): $isLoggedIn")
-                Log.d("UID_DEBUG", "  currentUserId (derived): $currentUserId")
-                Log.d("UID_DEBUG", "  globalUserNameMutableState.value (before LE): ${globalUserNameMutableState.value}")
-                // --- IMPORTANT LOGGING END ---
-
-
-                // LaunchedEffect to fetch/update the user's name when firebaseUser changes
                 LaunchedEffect(firebaseUser) {
                     Log.d("UID_DEBUG", "LaunchedEffect(firebaseUser) triggered. Key changed to: ${firebaseUser?.uid ?: "null"}")
 
                     if (firebaseUser != null) {
-                        val uid = firebaseUser!!.uid
+                        val uid = firebaseUser.uid
                         try {
-                            val userDocument = db.collection("users").document(uid).get().await()
+                            val userDocument = var_db.collection("users").document(uid).get().await()
                             val fetchedName = userDocument.getString("name") ?: firebaseUser.displayName ?: "Anonymous"
                             globalUserNameMutableState.value = fetchedName
                             Log.d("UID_DEBUG", "Fetched user name from Firestore for UID $uid: $fetchedName")
                         } catch (e: Exception) {
                             Log.e("UID_DEBUG", "Error fetching user name for UID $uid: ${e.message}", e)
-                            globalUserNameMutableState.value = firebaseUser.displayName ?: "Anonymous" // Fallback
+                            globalUserNameMutableState.value = firebaseUser.displayName ?: "Anonymous"
                             Log.d("UID_DEBUG", "Falling back to Firebase Auth display name: ${globalUserNameMutableState.value}")
                         }
                     } else {
-                        globalUserNameMutableState.value = "" // Clear username if no user
+                        globalUserNameMutableState.value = ""
                         Log.d("UID_DEBUG", "firebaseUser is null (signed out). Setting globalUserNameMutableState to empty.")
                     }
                     Log.d("UID_DEBUG", "globalUserNameMutableState.value after LaunchedEffect update: ${globalUserNameMutableState.value}")
                 }
 
-
-                // --- THE FIX: Instantiate the ListingsViewModel here, outside the NavHost. ---
-                // It will be scoped to the MainActivity's content (or AppScreen if you had one).
                 val listingsViewModel: ListingsViewModel = viewModel(
-                    // Key the ViewModel by currentUserId. This ensures a new VM is created
-                    // if the user ID *fundamentally changes* (e.g., a different user logs in).
                     key = currentUserId,
                     factory = ListingsViewModel.Factory(currentUserId)
                 )
 
-                // --- IMPORTANT: Trigger the initial refresh here, tied to the ViewModel's existence ---
                 LaunchedEffect(listingsViewModel) {
-                    // This LaunchedEffect will run only once when the listingsViewModel instance is created
-                    // (or re-created if currentUserId changes).
                     Log.d("UID_DEBUG", "LaunchedEffect(listingsViewModel) triggered. ViewModel hash: ${listingsViewModel.hashCode()}. Triggering refresh.")
                     listingsViewModel.refreshListings()
                 }
-                // --- END FIX ---
 
-
-                // --- IMPORTANT LOGGING START ---
                 Log.d("UID_DEBUG", "ListingsViewModel instance (hashCode): ${listingsViewModel.hashCode()}")
                 Log.d("UID_DEBUG", "ListingsViewModel created/re-created with ID: $currentUserId")
-                // --- IMPORTANT LOGGING END ---
 
 
-                // Provide the CompositionLocals
                 CompositionLocalProvider(
                     LocalUserId provides currentUserId,
                     LocalUserName provides globalUserNameMutableState
                 ){
-                    // The main content based on login state
                     if (isLoggedIn) {
-                        Scaffold(
+                        Scaffold( // This is the MAIN Scaffold for the app
                             bottomBar = {
-                                BottomNavigationBar(navController = navController)
+                                val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+                                // Only show bottom nav bar if not on auth screens or chat screen
+                                val showBottomNav = currentRoute != "login" &&
+                                        currentRoute != "registration" &&
+                                        currentRoute != "forgotPassword" &&
+                                        !currentRoute.orEmpty().startsWith("chatScreen")
+
+                                if (showBottomNav) {
+                                    BottomNavigationBar(navController = navController)
+                                }
                             }
-                        ) { paddingValuesFromScaffold ->
+                        ) { paddingValuesFromMainActivityScaffold -> // These paddingValues already include all system insets
                             NavHost(
                                 navController = navController,
                                 startDestination = BottomNavItem.Listings.route,
-                                modifier = Modifier.padding(paddingValuesFromScaffold)
+                                // Apply the main Scaffold's padding to the NavHost.
+                                // This provides space for the Bottom Nav Bar and system navigation bar.
+                                modifier = Modifier.padding(paddingValuesFromMainActivityScaffold)
                             ) {
+                                // --- START OF INDIVIDUAL SCREEN COMPOSABLES ---
+
+                                // ListingsScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.Listings.route) {
                                     ListingsScreen(
-                                        viewModel = listingsViewModel, // <--- Pass the SAME hoisted ViewModel instance
+                                        viewModel = listingsViewModel,
                                         onNavigateToDetail = { listing ->
                                             navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
                                             navController.navigate("listingDetail/${listing.id}")
                                         }
                                     )
                                 }
+
+                                // ListingDetailScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(
                                     "listingDetail/{listingId}",
                                     arguments = listOf(
@@ -209,8 +201,17 @@ class MainActivity : ComponentActivity() {
                                             listingId = listingId,
                                             onBackClick = { navController.popBackStack() },
                                             initialListing = initialListing,
-                                            onNavigateToAcceptedRequests = { id, ownerId ->
-                                                navController.navigate("acceptedRequests/$id/$ownerId")
+                                            onNavigateToAcceptedRequests = { currentListingId, ownerId ->
+                                                navController.navigate("acceptedRequests/$currentListingId/$ownerId")
+                                            },
+                                            onNavigateToChat = { participantIds, currentListingId, chatType ->
+                                                val participantsJson = Gson().toJson(participantIds)
+                                                navController.navigate(
+                                                    "chatScreen/" +
+                                                            "${currentListingId}/" +
+                                                            "${participantsJson.encodeURL()}/" +
+                                                            "${chatType.name}"
+                                                )
                                             }
                                         )
                                     } else {
@@ -220,6 +221,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
+
+                                // AcceptedRequestsScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(
                                     "acceptedRequests/{listingId}/{ownerId}",
                                     arguments = listOf(
@@ -242,12 +245,41 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
+
+                                // ChatScreen: Continues to manage its own Scaffold and TopAppBar
+                                composable(
+                                    "chatScreen/{listingId}/{participantsJson}/{chatType}",
+                                    arguments = listOf(
+                                        navArgument("listingId") { type = NavType.StringType },
+                                        navArgument("participantsJson") { type = NavType.StringType },
+                                        navArgument("chatType") { type = NavType.EnumType(ChatType::class.java) }
+                                    )
+                                ) { backStackEntry ->
+                                    val listingId = backStackEntry.arguments?.getString("listingId") ?: ""
+                                    val participantsJson = backStackEntry.arguments?.getString("participantsJson") ?: "[]"
+                                    val chatType = backStackEntry.arguments?.getSerializable("chatType") as? ChatType ?: ChatType.ONE_ON_ONE
+
+                                    val participants: List<String> = try {
+                                        Gson().fromJson(participantsJson.decodeURL(), object : TypeToken<List<String>>() {}.type)
+                                    } catch (e: Exception) {
+                                        Log.e("MainActivity", "Error deserializing participantsJson: $e")
+                                        emptyList()
+                                    }
+
+                                    ChatScreen(
+                                        listingId = listingId,
+                                        participantIds = participants,
+                                        chatType = chatType,
+                                        onBackClick = { navController.popBackStack() }
+                                    )
+                                }
+
+                                // ProfileScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.Profile.route) {
                                     ProfileScreen(
                                         onSignOut = {
                                             Log.d("UID_DEBUG", "Signing out user... (before auth.signOut())")
                                             auth.signOut()
-                                            Log.d("UID_DEBUG", "Signing out user... (after auth.signOut())")
                                         },
                                         onNavigateToDetail = { listing ->
                                             navController.currentBackStackEntry?.savedStateHandle?.set("listing", listing)
@@ -255,9 +287,10 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+
+                                // CreateRequestScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.CreateRequest.route) {
                                     CreateRequestScreen(onNavigateToListings = {
-                                        // This is a good place to trigger refresh for the listings screen
                                         listingsViewModel.onNewListingCreated()
                                         navController.navigate(BottomNavItem.Listings.route) {
                                             popUpTo(BottomNavItem.Listings.route) {
@@ -266,10 +299,10 @@ class MainActivity : ComponentActivity() {
                                         }
                                     })
                                 }
+                                // --- END OF INDIVIDUAL SCREEN COMPOSABLES ---
                             }
                         }
-                    } else { // Not logged in: Show auth screens
-                        // This LaunchedEffect ensures navigation to the login screen when isLoggedIn becomes false.
+                    } else { // Not logged in: Show auth screens (will also manage their own Scaffolds)
                         LaunchedEffect(isLoggedIn) {
                             if (!isLoggedIn) {
                                 val currentRoute = navController.currentBackStackEntry?.destination?.route
@@ -280,7 +313,7 @@ class MainActivity : ComponentActivity() {
                                 if (!isAlreadyOnAuthScreen) {
                                     Log.d("UID_DEBUG", "Not logged in. Navigating to login screen.")
                                     navController.navigate("login") {
-                                        popUpTo(0) { inclusive = true } // Clear back stack
+                                        popUpTo(0) { inclusive = true }
                                     }
                                 } else {
                                     Log.d("UID_DEBUG", "Not logged in, but already on auth screen ($currentRoute). No navigation needed.")
@@ -288,11 +321,11 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // NavHost for auth screens
                         NavHost(
                             navController = navController,
                             startDestination = if (showRegistration) "registration" else if (showForgotPassword) "forgotPassword" else "login"
                         ) {
+                            // LoginScreen: Will manage its own Scaffold and TopAppBar
                             composable("login") {
                                 LoginScreen(
                                     onLoginSuccess = {
@@ -308,7 +341,6 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onLogin = { email, password ->
                                         auth.signInWithEmailAndPassword(email, password)
-                                            // *** FIX: Use this@MainActivity for the Activity context ***
                                             .addOnCompleteListener(this@MainActivity) { task ->
                                                 if (task.isSuccessful) {
                                                     Log.d("UID_DEBUG", "Auth signInWithEmailAndPassword success. AuthStateListener will process.")
@@ -325,6 +357,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
+                            // RegistrationScreen: Will manage its own Scaffold and TopAppBar
                             composable("registration") {
                                 RegistrationScreen(
                                     onRegisterSuccess = {
@@ -337,7 +370,6 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onRegister = { email, password ->
                                         auth.createUserWithEmailAndPassword(email, password)
-                                            // *** FIX: Use this@MainActivity for the Activity context ***
                                             .addOnCompleteListener(this@MainActivity) { task ->
                                                 if (task.isSuccessful) {
                                                     Log.d("UID_DEBUG", "Auth createUserWithEmailAndPassword success. AuthStateListener will process.")
@@ -359,13 +391,14 @@ class MainActivity : ComponentActivity() {
                                     registerErrorMessage = registerErrorMessage
                                 )
                             }
+                            // ForgotPasswordScreen: Will manage its own Scaffold and TopAppBar
                             composable("forgotPassword") {
                                 ForgotPasswordScreen(
                                     onResetSuccess = {
                                         showForgotPassword = false
                                         forgotPasswordErrorMessage = null
                                         Toast.makeText(this@MainActivity, "Password reset email sent. Check your inbox.", Toast.LENGTH_LONG).show()
-                                        navController.popBackStack() // Go back to login after reset
+                                        navController.popBackStack()
                                     },
                                     onResetFailure = { errorMessage ->
                                         forgotPasswordErrorMessage = errorMessage
@@ -387,7 +420,6 @@ class MainActivity : ComponentActivity() {
         checkForegroundLocationPermission()
     }
 
-    // Remove the listener when the activity is destroyed to prevent memory leaks
     override fun onDestroy() {
         super.onDestroy()
         auth.removeAuthStateListener(authStateListener)
@@ -402,8 +434,8 @@ class MainActivity : ComponentActivity() {
         )
 
         NavigationBar(
-            // You can set overall padding/modifier for the whole NavigationBar if needed
-            modifier = Modifier.height(65.dp)
+            modifier = Modifier
+                .height(65.dp)
         ) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
@@ -415,41 +447,52 @@ class MainActivity : ComponentActivity() {
                         Icon(
                             imageVector = item.icon,
                             contentDescription = item.label,
-                            // --- Customize Icon Size ---
-                            modifier = Modifier.size(24.dp) // Adjust icon size here (e.g., 24.dp, 32.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     },
                     label = {
                         Text(
                             item.label,
-                            // --- Customize Text Size ---
-                            fontSize = 10.sp, // Adjust font size here
+                            fontSize = 10.sp,
                             lineHeight = 10.sp,
-                            // You can also change fontWeight, color, etc. based on selection
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     selected = isSelected,
                     onClick = {
-                        navController.navigate(item.route) {
-                            navController.graph.startDestinationRoute?.let { route ->
-                                popUpTo(route) {
-                                    saveState = true
+                        // Special handling for Listings to clear the back stack
+                        if (item.route == BottomNavItem.Listings.route) {
+                            navController.navigate(item.route) {
+                                // Pop up to the start destination of the graph to
+                                // clear all destinations from the back stack.
+                                popUpTo(navController.graph.startDestinationId) {
+                                    inclusive = true // Include the start destination itself if desired
+                                    saveState = false // Do not save state when clearing the stack
                                 }
+                                // Avoid recreating the same destination when re-selecting the same item
+                                launchSingleTop = true
+                                // If you want to prevent restoring previous state for Listings when clicked again
+                                restoreState = false
                             }
-                            launchSingleTop = true
-                            restoreState = true
+                        } else {
+                            navController.navigate(item.route) {
+                                navController.graph.startDestinationRoute?.let { route ->
+                                    popUpTo(route) {
+                                        saveState = true
+                                    }
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     },
-                    // --- Customize Item Padding ---
-                    modifier = Modifier.padding(vertical = 0.dp), // Adjust vertical padding for each item
-                    // You can also adjust the colors for selected/unselected states
+                    modifier = Modifier.padding(vertical = 0.dp),
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        indicatorColor = MaterialTheme.colorScheme.inversePrimary.copy(alpha = 0.2f) // Example indicator color
+                        indicatorColor = MaterialTheme.colorScheme.inversePrimary.copy(alpha = 0.2f)
                     )
                 )
             }
@@ -465,3 +508,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+// Extension functions for URL encoding/decoding strings
+fun String.encodeURL(): String = java.net.URLEncoder.encode(this, "UTF-8")
+fun String.decodeURL(): String = java.net.URLDecoder.decode(this, "UTF-8")

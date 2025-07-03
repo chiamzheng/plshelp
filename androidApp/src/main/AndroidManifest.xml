@@ -19,7 +19,8 @@
         >
         <activity
             android:exported="true"
-            android:name="com.example.plshelp.android.MainActivity">
+            android:name="com.example.plshelp.android.MainActivity"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
