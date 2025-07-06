@@ -12,28 +12,67 @@ import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine // Import combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted // Import SharingStarted
 import kotlinx.coroutines.launch
 import android.util.Log
-import com.google.firebase.Timestamp // Import Timestamp
-import com.google.firebase.firestore.ListenerRegistration // Import ListenerRegistration
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ListenerRegistration
 
 import java.util.concurrent.TimeUnit
+import com.google.common.geometry.S2CellId // Correct S2 import
+import com.google.common.geometry.S2LatLng // Correct S2 import
 
 class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
 
     private val db = FirebaseFirestore.getInstance()
 
     // --- Listener Registrations ---
-    // Declare private variables to hold the ListenerRegistration for each query
     private var generalListingsListener: ListenerRegistration? = null
     private var listingsUserIsFulfillingListener: ListenerRegistration? = null
     private var listingsUserAcceptedButNotFulfillingListener: ListenerRegistration? = null
     private var listingsOwnedAndAcceptedOffersListener: ListenerRegistration? = null
-    private var listingsOwnedByCurrentUserListener: ListenerRegistration? = null // NEW Listener
+    private var listingsOwnedByCurrentUserListener: ListenerRegistration? = null
+
+    // --- S2 Cell Filtering States ---
+    private val _selectedS2CellId = MutableStateFlow<S2CellId?>(null)
+    val selectedS2CellId: StateFlow<S2CellId?> = _selectedS2CellId.asStateFlow()
+
+    // Define the S2 cell level for filtering. Level 13 is a good balance for urban areas.
+    private val S2_CELL_LEVEL = 13 // Keep this consistent with ListingsScreen
+
+    fun selectS2Cell(cellId: S2CellId?) {
+        _selectedS2CellId.value = cellId
+        // The 'listings' flow (below) will automatically react to this change and re-filter.
+    }
+    // --- End S2 Cell Filtering States ---
 
     // --- General Listings (Active, not owned by current user) ---
-    private val _listings = MutableStateFlow<List<Listing>>(emptyList())
-    val listings: StateFlow<List<Listing>> = _listings
+    // This flow now holds ALL public listings from the repository, before S2 filtering
+    private val _allPublicListingsFromRepo = MutableStateFlow<List<Listing>>(emptyList())
+    val allPublicListingsFromRepo: StateFlow<List<Listing>> = _allPublicListingsFromRepo
+
+    // This is the actual 'listings' flow that is S2-filtered for display in both ListView and MapView
+    val listings: StateFlow<List<Listing>> = combine(
+        _allPublicListingsFromRepo, // Source of all public listings
+        _selectedS2CellId // S2 cell filter
+    ) { allListings, s2CellId ->
+        s2CellId?.let { cell ->
+            allListings.filter { listing ->
+                // Ensure listing has valid coordinates before attempting S2 conversion
+                listing.coord.size == 2 &&
+                        S2CellId.fromLatLng(S2LatLng.fromDegrees(listing.coord[0], listing.coord[1]))
+                            .parent(S2_CELL_LEVEL) == cell
+            }
+        } ?: allListings // If no cell selected, return all public listings (unfiltered)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000), // Keep active as long as there are subscribers
+        initialValue = emptyList()
+    )
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
@@ -50,7 +89,6 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     val isLoadingListingsUserAcceptedButNotFulfilling: StateFlow<Boolean> = _isLoadingListingsUserAcceptedButNotFulfilling
 
     // --- RENAMED: Listings owned by current user where they've accepted others' offers (owner's accepted requests) ---
-    // (This list is not used in the main ListingsScreen as per "owned by other people" rule, but kept for completeness)
     private val _listingsOwnedAndAcceptedOffers = MutableStateFlow<List<Listing>>(emptyList())
     val listingsOwnedAndAcceptedOffers: StateFlow<List<Listing>> = _listingsOwnedAndAcceptedOffers
     private val _isLoadingListingsOwnedAndAcceptedOffers = MutableStateFlow(false)
@@ -82,7 +120,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         listingsUserIsFulfillingListener?.remove()
         listingsUserAcceptedButNotFulfillingListener?.remove()
         listingsOwnedAndAcceptedOffersListener?.remove()
-        listingsOwnedByCurrentUserListener?.remove() // REMOVE NEW Listener
+        listingsOwnedByCurrentUserListener?.remove()
         Log.d("ListingsViewModel", "VM_CLEARED: All listeners removed.")
     }
 
@@ -98,7 +136,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         listingsUserIsFulfillingListener?.remove()
         listingsUserAcceptedButNotFulfillingListener?.remove()
         listingsOwnedAndAcceptedOffersListener?.remove()
-        listingsOwnedByCurrentUserListener?.remove() // Remove NEW Listener
+        listingsOwnedByCurrentUserListener?.remove()
 
         // Reset all loading states to false before starting new fetches
         // This prevents the "Already loading, skipping" log.
@@ -111,8 +149,8 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         fetchGeneralListings()
         fetchListingsUserIsFulfilling()
         fetchListingsUserAcceptedButNotFulfilling()
-        fetchListingsOwnedAndAcceptedOffers() // This remains for its specific filtering
-        fetchAllListingsOwnedByCurrentUser() // NEW: Fetch all owned listings
+        fetchListingsOwnedAndAcceptedOffers()
+        fetchAllListingsOwnedByCurrentUser()
     }
 
     /**
@@ -139,10 +177,9 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
 
     /**
      * Fetches general active listings that are not owned by the current user and not yet fulfilled.
-     * The `fulfilledBy.isEmpty()` check is done client-side using `isNullOrEmpty()`.
+     * This now populates `_allPublicListingsFromRepo`. The `listings` flow will then apply S2 filtering.
      */
     private fun fetchGeneralListings() {
-        // REMOVED: if (_isLoading.value) { Log.d(...); return; }
         _isLoading.value = true // Set loading state immediately upon starting fetch
         Log.d("ListingsViewModel", "FETCH_GENERAL_START: Fetching general listings for currentOwnerId: '$currentOwnerId'")
 
@@ -169,19 +206,15 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     }
                     Log.d("ListingsViewModel", "FETCH_GENERAL_PARSED: Parsed listing count: ${allListings.size}")
 
-                    // FIX: Use isNullOrEmpty() for the most robust null/empty check
-                    val filteredListings = allListings.filter { listing ->
-                        val isNotOwned = listing.ownerID != currentOwnerId
-                        val isNotFulfilled = listing.fulfilledBy.isNullOrEmpty()
-                        Log.d("ListingsViewModel", "FETCH_GENERAL_FILTER_ITEM: ID: ${listing.id}, Title: '${listing.title}', OwnerID: '${listing.ownerID}', FulfilledBy: ${listing.fulfilledBy}, IsNotOwned: $isNotOwned, IsNotFulfilled: $isNotFulfilled")
-
-                        isNotOwned && isNotFulfilled
+                    // Filter out listings owned by the current user and those already fulfilled
+                    val publicListingsNotOwnedOrFulfilled = allListings.filter { listing ->
+                        listing.ownerID != currentOwnerId && listing.fulfilledBy.isNullOrEmpty()
                     }
-                    _listings.value = filteredListings
-                    Log.d("ListingsViewModel", "FETCH_GENERAL_COMPLETE: General listings fetched for owner ID: $currentOwnerId. Final Count: ${filteredListings.size}")
+                    _allPublicListingsFromRepo.value = publicListingsNotOwnedOrFulfilled
+                    Log.d("ListingsViewModel", "FETCH_GENERAL_COMPLETE: Public listings (not owned/fulfilled) fetched for owner ID: $currentOwnerId. Final Count: ${publicListingsNotOwnedOrFulfilled.size}")
                 } else {
                     Log.d("ListingsViewModel", "FETCH_GENERAL_NULL: General listings snapshot is null for owner ID: $currentOwnerId.")
-                    _listings.value = emptyList()
+                    _allPublicListingsFromRepo.value = emptyList()
                 }
                 _isLoading.value = false // Ensure loading state is reset on success
             }
@@ -194,13 +227,12 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private fun fetchListingsUserIsFulfilling() {
         if (currentOwnerId.isBlank()) {
             _listingsUserIsFulfilling.value = emptyList()
-            _isLoadingListingsUserIsFulfilling.value = false // Ensure reset for this specific case
+            _isLoadingListingsUserIsFulfilling.value = false
             Log.d("ListingsViewModel", "FETCH_FULFILLING: Current user ID is blank, not fetching fulfilled-by listings.")
             return
         }
 
-        // REMOVED: if (_isLoadingListingsUserIsFulfilling.value) { Log.d(...); return; }
-        _isLoadingListingsUserIsFulfilling.value = true // Set loading state immediately
+        _isLoadingListingsUserIsFulfilling.value = true
         Log.d("ListingsViewModel", "FETCH_FULFILLING: Fetching fulfilled-by listings for user: $currentOwnerId")
 
         listingsUserIsFulfillingListener?.remove()
@@ -212,7 +244,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("ListingsViewModel", "FETCH_FULFILLING: Listen failed for fulfilled-by listings for owner ID: $currentOwnerId. Error: ${e.message}", e)
-                    _isLoadingListingsUserIsFulfilling.value = false // Ensure reset on error
+                    _isLoadingListingsUserIsFulfilling.value = false
                     return@addSnapshotListener
                 }
 
@@ -227,7 +259,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     Log.d("ListingsViewModel", "FETCH_FULFILLING: Listings user is fulfilling snapshot is null for owner ID: $currentOwnerId.")
                     _listingsUserIsFulfilling.value = emptyList()
                 }
-                _isLoadingListingsUserIsFulfilling.value = false // Ensure reset on success
+                _isLoadingListingsUserIsFulfilling.value = false
             }
     }
 
@@ -238,13 +270,12 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private fun fetchListingsUserAcceptedButNotFulfilling() {
         if (currentOwnerId.isBlank()) {
             _listingsUserAcceptedButNotFulfilling.value = emptyList()
-            _isLoadingListingsUserAcceptedButNotFulfilling.value = false // Ensure reset for this specific case
+            _isLoadingListingsUserAcceptedButNotFulfilling.value = false
             Log.d("ListingsViewModel", "FETCH_ACCEPTED_NOT_FULFILLING: Current user ID is blank, not fetching accepted but not fulfilling listings.")
             return
         }
 
-        // REMOVED: if (_isLoadingListingsUserAcceptedButNotFulfilling.value) { Log.d(...); return; }
-        _isLoadingListingsUserAcceptedButNotFulfilling.value = true // Set loading state immediately
+        _isLoadingListingsUserAcceptedButNotFulfilling.value = true
         Log.d("ListingsViewModel", "FETCH_ACCEPTED_NOT_FULFILLING: Fetching accepted-but-not-fulfilling listings for user: $currentOwnerId")
 
         listingsUserAcceptedButNotFulfillingListener?.remove()
@@ -256,7 +287,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("ListingsViewModel", "FETCH_ACCEPTED_NOT_FULFILLING: Listen failed for accepted-but-not-fulfilling listings for owner ID: $currentOwnerId. Error: ${e.message}", e)
-                    _isLoadingListingsUserAcceptedButNotFulfilling.value = false // Ensure reset on error
+                    _isLoadingListingsUserAcceptedButNotFulfilling.value = false
                     return@addSnapshotListener
                 }
 
@@ -264,10 +295,9 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     val fetchedListings = snapshot.documents.mapNotNull { document ->
                         parseListingDocument(document)
                     }
-                    // FIX: Use isNullOrEmpty() for the most robust null/empty check
                     val filteredListings = fetchedListings.filter { listing ->
-                        listing.acceptedBy.contains(currentOwnerId) &&
-                                listing.fulfilledBy.isNullOrEmpty() &&
+                        listing.acceptedBy.contains(currentOwnerId) && // Ensure current user is in acceptedBy
+                                listing.fulfilledBy.isNullOrEmpty() && // Use isNullOrEmpty() for nullable list
                                 listing.ownerID != currentOwnerId
                     }
                     _listingsUserAcceptedButNotFulfilling.value = filteredListings
@@ -276,7 +306,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     Log.d("ListingsViewModel", "FETCH_ACCEPTED_NOT_FULFILLING: Listings user accepted but not fulfilling snapshot is null for owner ID: $currentOwnerId.")
                     _listingsUserAcceptedButNotFulfilling.value = emptyList()
                 }
-                _isLoadingListingsUserAcceptedButNotFulfilling.value = false // Ensure reset on success
+                _isLoadingListingsUserAcceptedButNotFulfilling.value = false
             }
     }
 
@@ -287,13 +317,12 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private fun fetchListingsOwnedAndAcceptedOffers() {
         if (currentOwnerId.isBlank()) {
             _listingsOwnedAndAcceptedOffers.value = emptyList()
-            _isLoadingListingsOwnedAndAcceptedOffers.value = false // Ensure reset for this specific case
+            _isLoadingListingsOwnedAndAcceptedOffers.value = false
             Log.d("ListingsViewModel", "FETCH_OWNED_ACCEPTED: Current user ID is blank, not fetching owned and accepted offers.")
             return
         }
 
-        // REMOVED: if (_isLoadingListingsOwnedAndAcceptedOffers.value) { Log.d(...); return; }
-        _isLoadingListingsOwnedAndAcceptedOffers.value = true // Set loading state immediately
+        _isLoadingListingsOwnedAndAcceptedOffers.value = true
         Log.d("ListingsViewModel", "FETCH_OWNED_ACCEPTED: Fetching owned and accepted offers for user: $currentOwnerId")
 
         listingsOwnedAndAcceptedOffersListener?.remove()
@@ -304,7 +333,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("ListingsViewModel", "FETCH_OWNED_ACCEPTED: Listen failed for owned and accepted offers for owner ID: $currentOwnerId. Error: ${e.message}", e)
-                    _isLoadingListingsOwnedAndAcceptedOffers.value = false // Ensure reset on error
+                    _isLoadingListingsOwnedAndAcceptedOffers.value = false
                     return@addSnapshotListener
                 }
 
@@ -319,7 +348,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     Log.d("ListingsViewModel", "FETCH_OWNED_ACCEPTED: Owned and accepted offers snapshot is null for owner ID: $currentOwnerId.")
                     _listingsOwnedAndAcceptedOffers.value = emptyList()
                 }
-                _isLoadingListingsOwnedAndAcceptedOffers.value = false // Ensure reset on success
+                _isLoadingListingsOwnedAndAcceptedOffers.value = false
             }
     }
 
@@ -330,16 +359,15 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private fun fetchAllListingsOwnedByCurrentUser() {
         if (currentOwnerId.isBlank()) {
             _listingsOwnedByCurrentUser.value = emptyList()
-            _isLoadingListingsOwnedByCurrentUser.value = false // Ensure reset for this specific case
+            _isLoadingListingsOwnedByCurrentUser.value = false
             Log.d("ListingsViewModel", "FETCH_OWNED_ALL: Current user ID is blank, not fetching all owned listings.")
             return
         }
 
-        // REMOVED: if (_isLoadingListingsOwnedByCurrentUser.value) { Log.d(...); return; }
-        _isLoadingListingsOwnedByCurrentUser.value = true // Set loading state immediately
+        _isLoadingListingsOwnedByCurrentUser.value = true
         Log.d("ListingsViewModel", "FETCH_OWNED_ALL: Fetching all owned listings for user: $currentOwnerId")
 
-        listingsOwnedByCurrentUserListener?.remove() // Ensure old listener is removed
+        listingsOwnedByCurrentUserListener?.remove()
 
         listingsOwnedByCurrentUserListener = db.collection("listings")
             .whereEqualTo("ownerID", currentOwnerId)
@@ -347,7 +375,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("ListingsViewModel", "FETCH_OWNED_ALL: Listen failed for all owned listings for owner ID: $currentOwnerId. Error: ${e.message}", e)
-                    _isLoadingListingsOwnedByCurrentUser.value = false // Ensure reset on error
+                    _isLoadingListingsOwnedByCurrentUser.value = false
                     return@addSnapshotListener
                 }
 
@@ -361,16 +389,17 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
                     Log.d("ListingsViewModel", "FETCH_OWNED_ALL: All owned listings snapshot is null for owner ID: $currentOwnerId.")
                     _listingsOwnedByCurrentUser.value = emptyList()
                 }
-                _isLoadingListingsOwnedByCurrentUser.value = false // Ensure reset on success
+                _isLoadingListingsOwnedByCurrentUser.value = false
             }
     }
 
     /**
      * Helper function to parse a Firestore DocumentSnapshot into a Listing object.
-     * Crucially, `fulfilledBy` will now correctly be `null` if the Firestore field is `null` or absent.
+     * Crucially, `fulfilledBy` will now correctly be `null` or `emptyList()` based on Firestore data.
      */
     private fun parseListingDocument(document: com.google.firebase.firestore.DocumentSnapshot): Listing? {
         val id = document.id
+        // Categories can be stored as a List in Firestore, convert to comma-separated string for Listing object
         val category = (document.get("category") as? List<String>)?.joinToString(", ") ?: ""
         val coordGeoPoint = document.get("coord") as? GeoPoint
         val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
@@ -388,8 +417,9 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         val deliveryCoord = deliveryCoordGeoPoint?.let { listOf(it.latitude, it.longitude) }
 
         val acceptedBy = document.get("acceptedBy") as? List<String> ?: emptyList()
-        // FIX: Ensure fulfilledBy is correctly parsed as List<String>? from Firestore
-        val fulfilledBy = document.get("fulfilledBy") as? List<String> ?: emptyList() // Make it non-nullable empty list if null/absent
+        // Handle nullable fulfilledBy correctly: if the field is absent or null in Firestore,
+        // it should be null in the Listing object. Otherwise, cast to List<String>.
+        val fulfilledBy = document.get("fulfilledBy") as? List<String> // Can be null
 
         return Listing(
             id = id,
@@ -408,6 +438,37 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             acceptedBy = acceptedBy,
             fulfilledBy = fulfilledBy // This will now be `null` if the Firestore field is null or absent
         )
+    }
+
+    // --- Action Methods (remain the same) ---
+    fun acceptRequest(listingId: String, userId: String) {
+        db.collection("listings").document(listingId).update("acceptedBy", com.google.firebase.firestore.FieldValue.arrayUnion(userId))
+            .addOnSuccessListener { Log.d("ListingsViewModel", "Action: User $userId accepted request for $listingId.") }
+            .addOnFailureListener { e -> Log.e("ListingsViewModel", "Error accepting request for $listingId: ${e.message}", e) }
+    }
+
+    fun unacceptRequest(listingId: String, userId: String) {
+        db.collection("listings").document(listingId).update("acceptedBy", com.google.firebase.firestore.FieldValue.arrayRemove(userId))
+            .addOnSuccessListener { Log.d("ListingsViewModel", "Action: User $userId unaccepted request for $listingId.") }
+            .addOnFailureListener { e -> Log.e("ListingsViewModel", "Error unaccepting request for $listingId: ${e.message}", e) }
+    }
+
+    fun fulfillRequest(listingId: String, acceptedUserId: String) {
+        db.collection("listings").document(listingId)
+            .update(
+                mapOf(
+                    "fulfilledBy" to listOf(acceptedUserId),
+                    "status" to "active" // Keep active as it's being fulfilled
+                )
+            )
+            .addOnSuccessListener { Log.d("ListingsViewModel", "Action: Listing $listingId fulfilled by $acceptedUserId.") }
+            .addOnFailureListener { e -> Log.e("ListingsViewModel", "Error fulfilling request for $listingId: ${e.message}", e) }
+    }
+
+    fun markRequestAsCompleted(listingId: String) {
+        db.collection("listings").document(listingId).update("status", "fulfilled")
+            .addOnSuccessListener { Log.d("ListingsViewModel", "Action: Listing $listingId marked as completed.") }
+            .addOnFailureListener { e -> Log.e("ListingsViewModel", "Error marking request $listingId as completed: ${e.message}", e) }
     }
 
     class Factory(private val currentOwnerId: String) : ViewModelProvider.Factory {

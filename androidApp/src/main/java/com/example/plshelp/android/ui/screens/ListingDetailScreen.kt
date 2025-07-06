@@ -40,6 +40,7 @@ import com.example.plshelp.android.data.ListingDetailViewModel
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.remember
@@ -48,6 +49,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
 
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
@@ -68,13 +74,13 @@ import com.example.plshelp.android.LocalUserId
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.plshelp.android.data.ChatType
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListingDetailScreen(
     listingId: String,
     onBackClick: () -> Unit,
     initialListing: Listing? = null,
     onNavigateToAcceptedRequests: (String, String?) -> Unit,
-    // **CHANGED:** Added ChatType to the onNavigateToChat callback
     onNavigateToChat: (List<String>, String, ChatType) -> Unit // participant UIDs, listingId, ChatType
 ) {
     val viewModel: ListingDetailViewModel = viewModel(
@@ -96,18 +102,32 @@ fun ListingDetailScreen(
     }
 
     val mapState = rememberMapState()
+    val context = LocalContext.current
 
     val locationPainter = rememberVectorPainter(image = Icons.Default.LocationOn)
     val markerIconId = rememberIconImage(key = "location_marker", painter = locationPainter)
 
-    // Retrieve currentUserId from CompositionLocal here
     val currentUserId = LocalUserId.current
 
     var showUnacceptConfirmationDialog by remember { mutableStateOf(false) }
     var showOffersModal by remember { mutableStateOf(false) }
-    var showMarkCompletedConfirmationDialog by remember { mutableStateOf(false) } // New state for mark as completed
+    var showMarkCompletedConfirmationDialog by remember { mutableStateOf(false) }
 
-    Scaffold { paddingValuesFromScaffold ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(fontWeight = FontWeight.ExtraBold, text = listing?.title ?: "Loading Listing...") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
+        }
+    ) { paddingValuesFromScaffold ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -127,286 +147,250 @@ fun ListingDetailScreen(
                 val isRequestCompleted = listing.status == "fulfilled"
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(scrollState, enabled = parentScrollEnabled)
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // --- Scrollable Content Section ---
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(scrollState, enabled = parentScrollEnabled)
+                            .padding(horizontal = 16.dp),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val categories = listing.category.split(", ").map { it.trim() }
+                            categories.forEach { category ->
+                                CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
+                            }
+                        }
+
+                        Text(
+                            text = "Description:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = listing.description,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Price: $${listing.price}",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 16.sp,
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "Posted by: ${listing.ownerName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray
                             )
                         }
-                        Text(
-                            text = listing.title,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val categories = listing.category.split(", ").map { it.trim() }
-                        categories.forEach { category ->
-                            CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
+                        if (isDeliveryListing && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
+                            Text(
+                                text = "Pickup Location:",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.DarkGray
+                            )
+                            Text(
+                                text = "Delivery Location:",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.DarkGray
+                            )
+                        } else {
+                            Text(
+                                text = "Location:",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.DarkGray
+                            )
                         }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(250.dp)
+                        ) {
+                            MapboxMap(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            awaitFirstDown(pass = PointerEventPass.Initial)
+                                            parentScrollEnabled = false
+                                            do {
+                                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                            } while (event.changes.any { it.pressed })
+                                            parentScrollEnabled = true
+                                        }
+                                    },
+                                mapViewportState = mapViewportState,
+                                mapState = mapState,
+                                content = {
+                                    LaunchedEffect(listing.coord, listing.deliveryCoord) {
+                                        val pickupPoint = if (listing.coord.size == 2)
+                                            Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                        else null
+
+                                        val isDeliveryListingEffect = listing.category.contains("Delivery", ignoreCase = true)
+                                        val deliveryPoint = if (isDeliveryListingEffect) {
+                                            val coords = listing.deliveryCoord
+                                            if (coords != null && coords.size == 2) {
+                                                Point.fromLngLat(coords[1], coords[0])
+                                            } else null
+                                        } else null
+
+                                        val cameraOptions = when {
+                                            pickupPoint != null && deliveryPoint != null -> {
+                                                val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
+                                                val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
+
+                                                val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
+                                                val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
+
+                                                val maxDiff = max(latDiff, lonDiff)
+
+                                                val zoom = when {
+                                                    maxDiff < 0.01 -> 14.0
+                                                    maxDiff < 0.05 -> 12.0
+                                                    maxDiff < 0.1 -> 10.5
+                                                    maxDiff < 0.5 -> 9.5
+                                                    else -> 8.5
+                                                }
+
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(midLon, midLat))
+                                                    .zoom(zoom)
+                                                    .build()
+                                            }
+
+                                            pickupPoint != null -> {
+                                                CameraOptions.Builder()
+                                                    .center(pickupPoint)
+                                                    .zoom(14.0)
+                                                    .build()
+                                            }
+
+                                            else -> {
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
+                                                    .zoom(10.0)
+                                                    .build()
+                                            }
+                                        }
+
+                                        mapViewportState.flyTo(cameraOptions)
+                                    }
+
+                                    if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
+                                        PointAnnotation(
+                                            point = Point.fromLngLat(listing.coord[1], listing.coord[0]),
+                                        ) {
+                                            iconImage = markerIconId
+                                            textField = if (listing.category.contains("Delivery", ignoreCase = true)) "Pickup" else "Location"
+                                            textSize = 12.0
+                                            textHaloWidth = 1.0
+                                            textAnchor = TextAnchor.TOP
+                                            textOffset = listOf(0.0, -1.5)
+                                        }
+                                    }
+
+                                    if (listing.category.contains("Delivery", ignoreCase = true) && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
+                                        PointAnnotation(
+                                            point = Point.fromLngLat(listing.deliveryCoord[1], listing.deliveryCoord[0]),
+                                        ) {
+                                            iconImage = markerIconId
+                                            textField = "Delivery"
+                                            textSize = 12.0
+                                            textHaloWidth = 1.0
+                                            textAnchor = TextAnchor.TOP
+                                            textOffset = listOf(0.0, -1.5)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        listing.timestamp?.let { timestamp ->
+                            Text(
+                                text = "Created ${formatTimestampToTimeAgo(timestamp)} ago",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .padding(top = 8.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
+                    // --- End of Scrollable Content Section ---
 
-                    Text(
-                        text = "Description:",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = listing.description,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Price: $${listing.price}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(
-                            text = "Posted by: ${listing.ownerName}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray
-                        )
-                    }
-
-                    if (isDeliveryListing && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
-                        Text(
-                            text = "Pickup Location:",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.DarkGray
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Delivery Location:",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.DarkGray
-                        )
-                    } else {
-                        Text(
-                            text = "Location:",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.DarkGray
-                        )
-                    }
-
-                    Box(
+                    // --- Static Buttons Section (at the bottom) ---
+                    Surface(
+                        tonalElevation = 4.dp,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), // Translucent background
+                        shape = RoundedCornerShape(12.dp), // Slightly curved border
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(250.dp)
+                            .padding(bottom = 16.dp, top = 8.dp, start = 16.dp, end = 16.dp)
                     ) {
-                        MapboxMap(
+                        Row(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        awaitFirstDown(pass = PointerEventPass.Initial)
-                                        parentScrollEnabled = false
-                                        do {
-                                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                        } while (event.changes.any { it.pressed })
-                                        parentScrollEnabled = true
-                                    }
-                                },
-                            mapViewportState = mapViewportState,
-                            mapState = mapState,
-                            content = {
-                                LaunchedEffect(listing.coord, listing.deliveryCoord) {
-                                    val pickupPoint = if (listing.coord.size == 2)
-                                        Point.fromLngLat(listing.coord[1], listing.coord[0])
-                                    else null
-
-                                    val isDeliveryListingEffect = listing.category.contains("Delivery", ignoreCase = true)
-                                    val deliveryPoint = if (isDeliveryListingEffect) {
-                                        val coords = listing.deliveryCoord
-                                        if (coords != null && coords.size == 2) {
-                                            Point.fromLngLat(coords[1], coords[0])
-                                        } else null
-                                    } else null
-
-                                    val cameraOptions = when {
-                                        pickupPoint != null && deliveryPoint != null -> {
-                                            val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
-                                            val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
-
-                                            val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
-                                            val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
-
-                                            val maxDiff = max(latDiff, lonDiff)
-
-                                            val zoom = when {
-                                                maxDiff < 0.01 -> 14.0
-                                                maxDiff < 0.05 -> 12.0
-                                                maxDiff < 0.1 -> 10.5
-                                                maxDiff < 0.5 -> 9.5
-                                                else -> 8.5
-                                            }
-
-                                            CameraOptions.Builder()
-                                                .center(Point.fromLngLat(midLon, midLat))
-                                                .zoom(zoom)
-                                                .build()
-                                        }
-
-                                        pickupPoint != null -> {
-                                            CameraOptions.Builder()
-                                                .center(pickupPoint)
-                                                .zoom(14.0)
-                                                .build()
-                                        }
-
-                                        else -> {
-                                            CameraOptions.Builder()
-                                                .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
-                                                .zoom(10.0)
-                                                .build()
-                                        }
-                                    }
-
-                                    mapViewportState.flyTo(cameraOptions)
-                                }
-
-                                if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
-                                    PointAnnotation(
-                                        point = Point.fromLngLat(listing.coord[1], listing.coord[0]),
-                                    ) {
-                                        iconImage = markerIconId
-                                        textField = if (listing.category.contains("Delivery", ignoreCase = true)) "Pickup" else "Location"
-                                        textSize = 12.0
-                                        textHaloWidth = 1.0
-                                        textAnchor = TextAnchor.TOP
-                                        textOffset = listOf(0.0, -1.5)
-                                    }
-                                }
-
-                                if (listing.category.contains("Delivery", ignoreCase = true) && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
-                                    PointAnnotation(
-                                        point = Point.fromLngLat(listing.deliveryCoord[1], listing.deliveryCoord[0]),
-                                    ) {
-                                        iconImage = markerIconId
-                                        textField = "Delivery"
-                                        textSize = 12.0
-                                        textHaloWidth = 1.0
-                                        textAnchor = TextAnchor.TOP
-                                        textOffset = listOf(0.0, -1.5)
-                                    }
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Buttons based on user role and listing status
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isOwner) {
-                            if (isRequestCompleted) { // Status is "fulfilled"
-                                Text(
-                                    "Request Fulfilled",
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                if (isFulfilledBySomeone) {
-                                    val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
-                                    Text(
-                                        "By: $fulfillers",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = {
-                                            // Owner chats with all fulfillers in a group chat
-                                            val participants = mutableListOf(currentUserId).apply {
-                                                listing.fulfilledBy?.let { addAll(it) }
-                                            }.distinct().sorted() // Sort for consistent querying
-
-                                            // **CHANGED:** Determine ChatType for group chat
-                                            val chatTypeToNavigate = if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
-                                            onNavigateToChat(participants, listingId, chatTypeToNavigate)
-                                        },
-                                        enabled = !isLoading
-                                    ) {
-                                        Text("Chat with Fulfiller(s)")
-                                    }
-                                }
-                            } else { // Status is "active"
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Button(
-                                        onClick = { showOffersModal = true },
-                                        enabled = !isLoading
-                                    ) {
-                                        Text("View Offers (${listing.acceptedBy.size})")
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    if (isFulfilledBySomeone) {
-                                        val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isOwner) {
+                                if (isRequestCompleted) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(
-                                            "Assigned to: $fulfillers",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.primary
+                                            "Request Fulfilled",
+                                            color = Color.Gray,
+                                            style = MaterialTheme.typography.labelLarge
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Button(
-                                                onClick = { showMarkCompletedConfirmationDialog = true },
-                                                enabled = !isLoading,
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-                                            ) {
-                                                Text("Mark as Completed")
-                                            }
+                                        if (isFulfilledBySomeone) {
+                                            val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
+                                            Text(
+                                                "By: $fulfillers",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.Gray
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
                                             Button(
                                                 onClick = {
-                                                    // Owner chats with all fulfillers in a group chat
                                                     val participants = mutableListOf(currentUserId).apply {
                                                         listing.fulfilledBy?.let { addAll(it) }
-                                                    }.distinct().sorted() // Sort for consistent querying
+                                                    }.distinct().sorted()
 
-                                                    // **CHANGED:** Determine ChatType for group chat
                                                     val chatTypeToNavigate = if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
                                                     onNavigateToChat(participants, listingId, chatTypeToNavigate)
                                                 },
@@ -416,165 +400,206 @@ fun ListingDetailScreen(
                                             }
                                         }
                                     }
-                                }
-                            }
-                        } else { // Not the owner
-                            if (isRequestCompleted) {
-                                Text(
-                                    "Request Fulfilled",
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                if (isFulfilledByCurrentUser || hasAccepted) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = {
-                                            // User (fulfiller/offeror) chats with owner in a 1-on-1 chat
-                                            val ownerId = listing.ownerID
-                                            val participants = listOf(currentUserId, ownerId).sorted()
-                                            // **CHANGED:** Always a 1-on-1 chat
-                                            onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
-                                        },
-                                        enabled = !isLoading
-                                    ) {
-                                        Text("Chat with Owner")
-                                    }
-                                }
-                            } else { // Request is active (status == "active")
-                                if (hasAccepted) { // User has offered to help
+                                } else {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            if (isFulfilledByCurrentUser) "You are selected!" else "Help Offered",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Button(
-                                                onClick = { showUnacceptConfirmationDialog = true },
-                                                enabled = !isLoading && !isFulfilledByCurrentUser,
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                            ) {
-                                                Text("Withdraw Offer")
-                                            }
-                                            Button(
-                                                onClick = {
-                                                    // User (fulfiller/offeror) chats with owner in a 1-on-1 chat
-                                                    val ownerId = listing.ownerID
-                                                    val participants = listOf(currentUserId, ownerId).sorted()
-                                                    // **CHANGED:** Always a 1-on-1 chat
-                                                    onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
-                                                },
-                                                enabled = !isLoading
-                                            ) {
-                                                Text("Chat with Owner")
-                                            }
-                                        }
-                                    }
-                                } else { // User has NOT offered to help
-                                    if (!isFulfilledBySomeone) {
                                         Button(
-                                            onClick = { viewModel.acceptRequest(currentUserId) },
+                                            onClick = { showOffersModal = true },
                                             enabled = !isLoading
                                         ) {
-                                            Text("Offer to Help")
+                                            Text("View Offers (${listing.acceptedBy.size})")
                                         }
-                                    } else {
-                                        Text(
-                                            "Request Active (Assigned)",
-                                            color = Color.DarkGray,
-                                            style = MaterialTheme.typography.labelLarge
-                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        if (isFulfilledBySomeone) {
+                                            val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
+                                            Text(
+                                                "Assigned to: $fulfillers",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = { showMarkCompletedConfirmationDialog = true },
+                                                    enabled = !isLoading,
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                                                ) {
+                                                    Text("Mark as Completed")
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val participants = mutableListOf(currentUserId).apply {
+                                                            listing.fulfilledBy?.let { addAll(it) }
+                                                        }.distinct().sorted()
+
+                                                        val chatTypeToNavigate = if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
+                                                        onNavigateToChat(participants, listingId, chatTypeToNavigate)
+                                                    },
+                                                    enabled = !isLoading
+                                                ) {
+                                                    Text("Chat with Fulfiller(s)")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else { // Not the owner
+                                if (isRequestCompleted) {
+                                    Text(
+                                        "Request Fulfilled",
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                    if (isFulfilledByCurrentUser || hasAccepted) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Button(
+                                            onClick = {
+                                                val ownerId = listing.ownerID
+                                                val participants = listOf(currentUserId, ownerId).sorted()
+                                                onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
+                                            },
+                                            enabled = !isLoading
+                                        ) {
+                                            Text("Chat with Owner")
+                                        }
+                                    }
+                                } else { // Request is active (status == "active")
+                                    if (hasAccepted) { // User has offered to help
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                if (isFulfilledByCurrentUser) "You are selected!" else "Help Offered",
+                                                color = MaterialTheme.colorScheme.primary,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = { showUnacceptConfirmationDialog = true },
+                                                    enabled = !isLoading && !isFulfilledByCurrentUser,
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                                ) {
+                                                    Text("Withdraw Offer")
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val ownerId = listing.ownerID
+                                                        val participants = listOf(currentUserId, ownerId).sorted()
+                                                        onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
+                                                    },
+                                                    enabled = !isLoading
+                                                ) {
+                                                    Text("Chat with Owner")
+                                                }
+                                            }
+                                        }
+                                    } else { // User has NOT offered to help
+                                        if (!isFulfilledBySomeone) {
+                                            // Modified to show both "Offer to Help" and "Chat with Owner"
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = { viewModel.acceptRequest(currentUserId) },
+                                                    enabled = !isLoading
+                                                ) {
+                                                    Text("Offer to Help")
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val ownerId = listing.ownerID
+                                                        val participants = listOf(currentUserId, ownerId).sorted()
+                                                        onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
+                                                    },
+                                                    enabled = !isLoading
+                                                ) {
+                                                    Text("Chat with Owner")
+                                                }
+                                            }
+                                        } else {
+                                            Text(
+                                                "Request Active (Assigned)",
+                                                color = Color.DarkGray,
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-
-                    // Dialogs (unchanged)
-                    if (showUnacceptConfirmationDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showUnacceptConfirmationDialog = false },
-                            title = { Text("Withdraw Offer") },
-                            text = { Text("Are you sure you want to withdraw your offer to help? You can offer again later if it's still available.") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        viewModel.unacceptRequest(currentUserId)
-                                        showUnacceptConfirmationDialog = false
-                                    },
-                                    enabled = !isLoading
-                                ) {
-                                    Text("Confirm Withdraw")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showUnacceptConfirmationDialog = false }) {
-                                    Text("Cancel")
-                                }
-                            }
-                        )
-                    }
-
-                    if (showMarkCompletedConfirmationDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showMarkCompletedConfirmationDialog = false },
-                            title = { Text("Mark Request as Completed") },
-                            text = { Text("Are you sure you want to mark this request as completed? This action cannot be undone.") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        viewModel.markRequestAsCompleted(currentUserId)
-                                        showMarkCompletedConfirmationDialog = false
-                                    },
-                                    enabled = !isLoading
-                                ) {
-                                    Text("Confirm Complete")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showMarkCompletedConfirmationDialog = false }) {
-                                    Text("Cancel")
-                                }
-                            }
-                        )
-                    }
-
-                    // Offers Modal
-                    if (showOffersModal && !isRequestCompleted) {
-                        OffersModal(
-                            acceptedByUids = listing.acceptedBy,
-                            alreadyFulfilledBy = listing.fulfilledBy,
-                            onAcceptOffer = { acceptedUserId ->
-                                viewModel.fulfillRequest(acceptedUserId)
-                                showOffersModal = false
-                            },
-                            onChatWithOfferor = { offerorId ->
-                                // Owner chats with a specific offeror in a 1-on-1 chat
-                                val participants = listOf(currentUserId, offerorId).sorted()
-                                // **CHANGED:** Always a 1-on-1 chat
-                                onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
-                                showOffersModal = false
-                            },
-                            onDismiss = { showOffersModal = false }
-                        )
-                    }
-
-                    listing.timestamp?.let { timestamp ->
-                        Text(
-                            text = "Created ${formatTimestampToTimeAgo(timestamp)} ago",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 8.dp)
-                        )
-                    }
+                    // --- End of Static Buttons Section ---
                 }
             }
         }
     }
+
+    if (showUnacceptConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnacceptConfirmationDialog = false },
+            title = { Text("Withdraw Offer") },
+            text = { Text("Are you sure you want to withdraw your offer to help? You can offer again later if it's still available.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.unacceptRequest(currentUserId)
+                        showUnacceptConfirmationDialog = false
+                    },
+                    enabled = !isLoading
+                ) {
+                    Text("Confirm Withdraw")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnacceptConfirmationDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showMarkCompletedConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { showMarkCompletedConfirmationDialog = false },
+            title = { Text("Mark Request as Completed") },
+            text = { Text("Are you sure you want to mark this request as completed? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.markRequestAsCompleted(currentUserId)
+                        showMarkCompletedConfirmationDialog = false
+                    },
+                    enabled = !isLoading
+                ) {
+                    Text("Confirm Complete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMarkCompletedConfirmationDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showOffersModal && listing != null && !isRequestCompleted(listing.status)) {
+        OffersModal(
+            acceptedByUids = listing.acceptedBy,
+            alreadyFulfilledBy = listing.fulfilledBy,
+            onAcceptOffer = { acceptedUserId ->
+                viewModel.fulfillRequest(acceptedUserId)
+                showOffersModal = false
+            },
+            onChatWithOfferor = { offerorId ->
+                val participants = listOf(currentUserId, offerorId).sorted()
+                onNavigateToChat(participants, listingId, ChatType.ONE_ON_ONE)
+                showOffersModal = false
+            },
+            onDismiss = { showOffersModal = false }
+        )
+    }
+}
+
+private fun isRequestCompleted(status: String?): Boolean {
+    return status == "fulfilled"
 }
 
 @Composable

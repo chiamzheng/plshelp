@@ -62,56 +62,82 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import com.example.plshelp.android.LocalUserId // Assuming LocalUserId is defined in the Android package
 import com.example.plshelp.android.data.DisplayModeRepository
 import com.example.plshelp.android.data.ListingsViewModel
 import androidx.compose.ui.text.style.TextAlign
+import com.google.common.geometry.S2Cell
+import com.google.common.geometry.S2CellId
+import com.google.common.geometry.S2LatLng
+import com.mapbox.geojson.Point
+import com.mapbox.geojson.Polygon
+import com.mapbox.maps.CameraOptions
+import com.mapbox.maps.extension.compose.MapboxMap
+import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
+import com.mapbox.maps.extension.compose.annotation.rememberIconImage
+import com.mapbox.maps.extension.compose.rememberMapState
+import com.mapbox.maps.extension.style.layers.properties.generated.TextAnchor
+import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
+import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotationInteractionsState
 
-
-// New enum to define the display mode
 enum class DisplayMode {
     DISTANCE,
     WALK_TIME
 }
 
-// Define the Status data class for the ListingCard
 data class ListingStatus(val text: String, val color: Color)
 
-// Enum to define the tabs
 enum class ListingsTab {
-    PUBLIC_LISTINGS, YOUR_LISTINGS
+    PUBLIC_LISTINGS, YOUR_LISTINGS, MAP_VIEW
+}
+
+private const val S2_CELL_LEVEL = 13
+
+fun s2CellToPolygon(s2CellId: S2CellId): Polygon {
+    val cell = S2Cell(s2CellId)
+    val points = mutableListOf<Point>()
+    for (i in 0 until 4) {
+        val vertex = cell.getVertex(i)
+        val latLng = S2LatLng(vertex)
+        points.add(Point.fromLngLat(latLng.lngDegrees(), latLng.latDegrees()))
+    }
+    points.add(points.first())
+    return Polygon.fromLngLats(listOf(points))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListingsScreen(
-    viewModel: ListingsViewModel, // Inject the ViewModel here
+    viewModel: ListingsViewModel,
     onNavigateToDetail: (Listing) -> Unit
 ) {
     val context = LocalContext.current
-    val currentUserId = LocalUserId.current // Get current user ID
+    val currentUserId = LocalUserId.current
 
     val currentLat = remember { mutableDoubleStateOf(LocationManager.targetLat) }
     val currentLon = remember { mutableDoubleStateOf(LocationManager.targetLon) }
 
-    // Collect states from ViewModel for Public Listings
-    val listings by viewModel.listings.collectAsState() // General listings from DB
-    val isLoading by viewModel.isLoading.collectAsState() // Loading for general listings
-    val lastFetchTime = viewModel.lastFetchTimeState.value // Directly access the State value
+    val listings by viewModel.listings.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val lastFetchTime = viewModel.lastFetchTimeState.value
 
-    // Collect helper-centric lists from ViewModel (used in "Your Engaged Listings" section)
     val listingsUserIsFulfilling by viewModel.listingsUserIsFulfilling.collectAsState()
     val isLoadingListingsUserIsFulfilling by viewModel.isLoadingListingsUserIsFulfilling.collectAsState()
 
     val listingsUserAcceptedButNotFulfilling by viewModel.listingsUserAcceptedButNotFulfilling.collectAsState()
     val isLoadingListingsUserAcceptedButNotFulfilling by viewModel.isLoadingListingsUserAcceptedButNotFulfilling.collectAsState()
 
-    // FIX: Collect ALL listings owned by the current user for "Your Listings" tab
     val allOwnedListings by viewModel.listingsOwnedByCurrentUser.collectAsState()
     val isLoadingAllOwnedListings by viewModel.isLoadingListingsOwnedByCurrentUser.collectAsState()
 
-
-    // Retrieve display mode from DataStore (still used by ListingCard)
     val displayModeRepository = remember { DisplayModeRepository(context) }
     val displayMode by displayModeRepository.displayModeFlow.collectAsState(initial = DisplayMode.DISTANCE)
 
@@ -130,9 +156,32 @@ fun ListingsScreen(
         )
     }
 
-    // State for selected tab
     var selectedTab by rememberSaveable { mutableStateOf(ListingsTab.PUBLIC_LISTINGS) }
 
+    val mapViewportState = rememberMapViewportState {
+        setCameraOptions {
+            center(Point.fromLngLat(103.8198, 1.3521))
+            zoom(10.0)
+        }
+    }
+    val mapState = rememberMapState()
+
+
+    var mapCenterS2CellId by remember { mutableStateOf<S2CellId?>(null) }
+    var showSelectCellConfirmation by remember { mutableStateOf(false) }
+
+    val activeS2CellId by viewModel.selectedS2CellId.collectAsState()
+
+    val locationPainter = rememberVectorPainter(image = Icons.Default.LocationOn)
+    val markerIconId = rememberIconImage(key = "location_marker", painter = locationPainter)
+
+    val userLocationPainter = rememberVectorPainter(image = Icons.Default.Person)
+    val userMarkerIconId = rememberIconImage(key = "user_location_marker", painter = userLocationPainter)
+
+    // State to track if the map has already centered initially
+    val hasCenteredMap = remember { mutableStateOf(false) }
+
+    // LaunchedEffect to start location updates and select initial S2 cell
     LaunchedEffect(Unit) {
         LocationManager.checkUserLocation(context) { result ->
             val parts = result.split("\n").last().split(", ")
@@ -140,33 +189,51 @@ fun ListingsScreen(
                 currentLat.doubleValue = parts[0].toDoubleOrNull() ?: LocationManager.targetLat
                 currentLon.doubleValue = parts[1].toDoubleOrNull() ?: LocationManager.targetLon
             }
+            val initialS2Cell = S2CellId.fromLatLng(S2LatLng.fromDegrees(currentLat.doubleValue, currentLon.doubleValue)).parent(S2_CELL_LEVEL)
+            if (viewModel.selectedS2CellId.value == null) {
+                viewModel.selectS2Cell(initialS2Cell)
+            }
         }
     }
 
-    // --- REMOVED THE LaunchedEffect(currentUserId) BLOCK FROM HERE ---
-    // The initial refresh is now handled by MainActivity's LaunchedEffect(listingsViewModel)
+    // LaunchedEffect to perform initial flyTo only once when coordinates are updated and tab is MAP_VIEW
+    LaunchedEffect(currentLat.doubleValue, currentLon.doubleValue, selectedTab) {
+        // Only perform initial flyTo if we are on the MAP_VIEW tab, haven't centered yet,
+        // and we have valid coordinates (not the default LocationManager.targetLat/Lon)
+        if (selectedTab == ListingsTab.MAP_VIEW && !hasCenteredMap.value &&
+            (currentLat.doubleValue != LocationManager.targetLat || currentLon.doubleValue != LocationManager.targetLon)) {
+            val initialPoint = Point.fromLngLat(currentLon.doubleValue, currentLat.doubleValue)
+            mapViewportState.flyTo(
+                CameraOptions.Builder()
+                    .center(initialPoint)
+                    .zoom(14.0)
+                    .build()
+            )
+            hasCenteredMap.value = true // Set the flag to true after initial centering
+        }
+    }
 
-    // --- Public Listings Filtering Logic ---
+    // Reset hasCenteredMap when navigating away from MAP_VIEW
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != ListingsTab.MAP_VIEW) {
+            hasCenteredMap.value = false
+        }
+    }
+
     val combinedEngagedListingsRaw = remember(listingsUserIsFulfilling, listingsUserAcceptedButNotFulfilling) {
         (listingsUserIsFulfilling + listingsUserAcceptedButNotFulfilling)
             .distinctBy { it.id }
-        // Removed direct sorting here, will be sorted by status below
     }
 
-    // NEW: Sorting for combinedEngagedListings
     val sortedCombinedEngagedListings = remember(combinedEngagedListingsRaw) {
         combinedEngagedListingsRaw.sortedWith(compareBy<Listing> { listing ->
             when {
-                // "ACTIVE" if you are currently fulfilling
                 listingsUserIsFulfilling.any { it.id == listing.id } -> 0
-                // "PENDING" if you accepted, awaiting owner confirmation
                 listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> 1
-                // Fallback for any other unexpected status (shouldn't happen with the current logic)
                 else -> 2
             }
-        }.thenByDescending { it.timestamp?.toDate() }) // Secondary sort by timestamp
+        }.thenByDescending { it.timestamp?.toDate() })
     }
-
 
     val engagedListingIds = remember(sortedCombinedEngagedListings) {
         sortedCombinedEngagedListings.map { it.id }.toSet()
@@ -191,29 +258,17 @@ fun ListingsScreen(
             }
         }
     }
-    // --- End Public Listings Filtering Logic ---
 
-
-    // --- Your Listings Sorting Logic (Hoisted outside LazyColumn content lambda) ---
     val sortedOwnedListings = remember(allOwnedListings) {
         allOwnedListings.sortedWith(compareBy<Listing> { listing ->
             when {
-                // "COMPLETED" if status is explicitly "fulfilled" (owner marked as completed)
                 listing.status == "fulfilled" -> 0
-                // "ACTIVE" if fulfilledBy is not null and not empty AND status is "active" (someone is actively helping)
-                // FIX: Null-safe check for fulfilledBy
                 listing.fulfilledBy?.isNotEmpty() == true && listing.status == "active" -> 1
-                // "OFFER RECEIVED" if acceptedBy is not empty AND fulfilledBy is null or empty
-                // This means someone has offered, but not yet fulfilling
-                // FIX: Correct logic for "OFFER RECEIVED"
                 listing.acceptedBy.isNotEmpty() && listing.fulfilledBy.isNullOrEmpty() -> 2
-                // No special banner for open listings without accepted offers
                 else -> 3
             }
-        }.thenByDescending { it.timestamp?.toDate() }) // Secondary sort by timestamp
+        }.thenByDescending { it.timestamp?.toDate() })
     }
-    // --- End Your Listings Sorting Logic ---
-
 
     Scaffold(
         topBar = {
@@ -248,13 +303,12 @@ fun ListingsScreen(
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
-            // Tab Row
             TabRow(selectedTabIndex = selectedTab.ordinal) {
                 ListingsTab.entries.forEachIndexed { index, tab ->
                     Tab(
                         selected = selectedTab == tab,
                         onClick = { selectedTab = tab },
-                        text = { Text(tab.name.replace("_", " ")) } // Replaces underscore with space
+                        text = { Text(tab.name.replace("_", " ")) }
                     )
                 }
             }
@@ -267,12 +321,11 @@ fun ListingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                     ) {
-                        // Your Engaged Listings Section
-                        item { // This item holds the header and conditional loading/empty states for engaged listings
+                        item {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 8.dp) // Smaller bottom padding here as items will add their own
+                                    .padding(bottom = 8.dp)
                             ) {
                                 Text(
                                     text = "Your Engaged Listings",
@@ -284,33 +337,31 @@ fun ListingsScreen(
                         }
 
                         val overallLoadingEngaged = isLoadingListingsUserIsFulfilling || isLoadingListingsUserAcceptedButNotFulfilling
-                        if (overallLoadingEngaged && sortedCombinedEngagedListings.isEmpty()) { // Use sorted list here
+                        if (overallLoadingEngaged && sortedCombinedEngagedListings.isEmpty()) {
                             item {
                                 Box(modifier = Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
                             }
-                        } else if (sortedCombinedEngagedListings.isEmpty()) { // Use sorted list here
+                        } else if (sortedCombinedEngagedListings.isEmpty()) {
                             item {
                                 Text(
                                     text = "No active or pending engagements.",
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), // Add padding here
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                                     textAlign = TextAlign.Center,
                                     color = Color.Gray
                                 )
                             }
                         } else {
-                            // FIX: Use sortedCombinedEngagedListings for rendering list content in LazyColumn
                             items(sortedCombinedEngagedListings) { listing ->
-                                // Status logic for listings YOU are fulfilling/accepted (as a helper)
                                 val statusText = when {
-                                    listingsUserIsFulfilling.any { it.id == listing.id } -> "ACTIVE" // You are currently fulfilling
-                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> "PENDING" // You accepted, awaiting owner confirmation
+                                    listingsUserIsFulfilling.any { it.id == listing.id } -> "ACTIVE"
+                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> "PENDING"
                                     else -> null
                                 }
                                 val statusColor = when {
-                                    listingsUserIsFulfilling.any { it.id == listing.id } -> Color(0xFF338a4d) // Green
-                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> Color(0xFFb0aa0c) // Orange/Yellow
+                                    listingsUserIsFulfilling.any { it.id == listing.id } -> Color(0xFF338a4d)
+                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> Color(0xFFb0aa0c)
                                     else -> null
                                 }
 
@@ -326,12 +377,11 @@ fun ListingsScreen(
                             }
                         }
 
-                        // All Other Listings Section (Public listings, deduplicated and filtered)
-                        item { // This item holds the header and filter button
+                        item {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 16.dp, bottom = 8.dp), // Add top padding to separate sections
+                                    .padding(top = 16.dp, bottom = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -350,27 +400,25 @@ fun ListingsScreen(
                                 ) {
                                     Text("Filter by",
                                         fontSize = 12.sp,
-                                        lineHeight = 12.sp // Ensure lineHeight matches fontSize for tight fit
+                                        lineHeight = 12.sp
                                     )
                                 }
                             }
                         }
 
-                        // Corrected loading and empty state check for Available Listings
-                        if (isLoading && filteredGeneralListings.isEmpty()) { // No need to check combinedEngagedListings here
+                        if (isLoading && filteredGeneralListings.isEmpty()) {
                             item {
                                 Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
                             }
-                        } else if (filteredGeneralListings.isEmpty() && !isLoading) { // If no general listings after loading
+                        } else if (filteredGeneralListings.isEmpty() && !isLoading) {
                             item {
                                 Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                                     Text("No other listings available.", fontSize = 18.sp, color = Color.Gray)
                                 }
                             }
                         } else {
-                            // These are direct items of LazyColumn
                             items(filteredGeneralListings) { listing ->
                                 ListingCard(
                                     listing = listing,
@@ -378,7 +426,7 @@ fun ListingsScreen(
                                     currentLat = currentLat.doubleValue,
                                     currentLon = currentLon.doubleValue,
                                     displayMode = displayMode,
-                                    status = null // Public listings typically don't have a banner unless they are "urgent" or special
+                                    status = null
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
@@ -391,7 +439,7 @@ fun ListingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                     ) {
-                        item { // This item holds the header for your posted listings
+                        item {
                             Text(
                                 text = "Your Posted Listings",
                                 style = MaterialTheme.typography.titleMedium,
@@ -400,7 +448,6 @@ fun ListingsScreen(
                             )
                         }
 
-                        // Use allOwnedListings for display and apply custom sorting
                         if (isLoadingAllOwnedListings && allOwnedListings.isEmpty()) {
                             item {
                                 Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
@@ -419,23 +466,14 @@ fun ListingsScreen(
                                 }
                             }
                         } else {
-                            // These are direct items of LazyColumn
                             items(sortedOwnedListings) { listing ->
-                                // Determine status for your own listings
                                 val statusForUserListing: ListingStatus? = when {
-                                    // "COMPLETED" if status is explicitly "fulfilled" (owner marked as completed)
                                     listing.status == "fulfilled" ->
-                                        ListingStatus("COMPLETED", Color(0xFF6A1B9A)) // Purple for completed
-                                    // "ACTIVE" if fulfilledBy is not null and not empty AND status is "active" (someone is actively helping)
-                                    // FIX: Null-safe check for fulfilledBy
+                                        ListingStatus("COMPLETED", Color(0xFF6A1B9A))
                                     listing.fulfilledBy?.isNotEmpty() == true && listing.status == "active" ->
-                                        ListingStatus("ACTIVE", Color(0xFF338a4d)) // Green
-                                    // "OFFER RECEIVED" if acceptedBy is not empty AND fulfilledBy is null or empty
-                                    // This means someone has offered, but not yet fulfilling
-                                    // FIX: Correct logic for "OFFER RECEIVED"
+                                        ListingStatus("ACTIVE", Color(0xFF338a4d))
                                     listing.acceptedBy.isNotEmpty() && listing.fulfilledBy.isNullOrEmpty() ->
-                                        ListingStatus("OFFER RECEIVED", Color(0xFFb0aa0c)) // Orange/Yellow
-                                    // No special banner for open listings without accepted offers
+                                        ListingStatus("OFFER RECEIVED", Color(0xFFb0aa0c))
                                     else ->
                                         null
                                 }
@@ -453,10 +491,148 @@ fun ListingsScreen(
                         }
                     }
                 }
+
+                // --- MAP_VIEW Tab Content ---
+                ListingsTab.MAP_VIEW -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        MapboxMap(
+                            modifier = Modifier.fillMaxSize(),
+                            mapViewportState = mapViewportState,
+                            mapState = mapState,
+                            content = {
+                                // Observe camera state to continuously update the S2 cell at the map center
+                                LaunchedEffect(mapViewportState.cameraState) {
+                                    val cameraState = mapViewportState.cameraState
+                                    if (cameraState != null) {
+                                        val centerPoint = cameraState.center
+                                        val newS2CellId = S2CellId.fromLatLng(S2LatLng.fromDegrees(centerPoint.latitude(), centerPoint.longitude())).parent(S2_CELL_LEVEL)
+                                        if (newS2CellId != mapCenterS2CellId) {
+                                            mapCenterS2CellId = newS2CellId
+                                        }
+                                    }
+                                }
+
+                                // Draw the actively selected S2 cell outline (using PolygonAnnotation composable)
+                                activeS2CellId?.let { cellId ->
+                                    val polygon = s2CellToPolygon(cellId)
+                                    PolygonAnnotation(
+                                        points = polygon.coordinates()
+                                    ) {
+                                        fillColor = Color.Blue.copy(alpha = 0.2f)
+                                        fillOutlineColor = Color.Blue
+                                    }
+                                }
+
+                                // If a different cell is currently at the map center (and not the active one), draw its temporary outline in red
+                                if (mapCenterS2CellId != null && mapCenterS2CellId != activeS2CellId) {
+                                    val tempPolygon = s2CellToPolygon(mapCenterS2CellId!!)
+                                    PolygonAnnotation(
+                                        points = tempPolygon.coordinates()
+                                    ) {
+                                        fillColor = Color.Red.copy(alpha = 0.1f)
+                                        fillOutlineColor = Color.Red
+                                    }
+                                }
+
+                                // Display marker for user's current location (Green icon)
+                                PointAnnotation(
+                                    point = Point.fromLngLat(currentLon.doubleValue, currentLat.doubleValue)
+                                ) {
+                                    iconImage = userMarkerIconId
+                                    textField = "You are here"
+                                    textOffset = listOf(0.0, -2.0)
+                                    textAnchor = TextAnchor.TOP
+                                    textColor = Color.Green
+                                    textSize = 12.0
+                                }
+
+                                // Display markers for the listings (using PointAnnotation composable)
+                                listings.forEach { listing ->
+                                    if (listing.coord.size == 2) {
+                                        val point = Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                        PointAnnotation(
+                                            point = point
+                                        ) {
+                                            iconImage = markerIconId
+                                            textField = listing.title
+                                            textOffset = listOf(0.0, -2.0)
+                                            textAnchor = TextAnchor.TOP
+                                            textColor = Color.Black
+                                            textSize = 12.0
+                                            interactionsState = PointAnnotationInteractionsState().apply {
+                                                isDraggable = false
+                                                onClicked {
+                                                    onNavigateToDetail(listing)
+                                                    true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        )
+
+                        // Existing "Select this area" button
+                        FloatingActionButton(
+                            onClick = { showSelectCellConfirmation = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp)
+                        ) {
+                            Icon(Icons.Default.Done, contentDescription = "Select this area")
+                        }
+
+                        // "My Location" button to jump to current location
+                        FloatingActionButton(
+                            onClick = {
+                                val userLocationPoint = Point.fromLngLat(currentLon.doubleValue, currentLat.doubleValue)
+                                mapViewportState.flyTo(
+                                    CameraOptions.Builder()
+                                        .center(userLocationPoint)
+                                        .zoom(14.0)
+                                        .build()
+                                )
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 80.dp, end = 16.dp)
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = "Go to my location")
+                        }
+                    }
+                }
+                // --- End MAP_VIEW Tab Content ---
             }
         }
     }
 
+    // Confirmation dialog for selecting a new S2 cell
+    if (showSelectCellConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showSelectCellConfirmation = false },
+            title = { Text("Select This Area?") },
+            text = { Text("Do you want to filter listings to the area outlined in red? This will refresh available listings.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        mapCenterS2CellId?.let {
+                            viewModel.selectS2Cell(it)
+                        }
+                        showSelectCellConfirmation = false
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSelectCellConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // --- Filter Sheet (your existing code) ---
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
@@ -498,7 +674,6 @@ fun ListingsScreen(
                                     }
                                 )
                             }
-                            // Add spacers if the row has fewer than 4 categories to maintain alignment
                             if (rowCategories.size < 4) {
                                 for (i in rowCategories.size until 4) {
                                     Spacer(modifier = Modifier.weight(1f))
@@ -512,7 +687,6 @@ fun ListingsScreen(
         }
     }
 }
-
 
 @Composable
 fun ListingCard(

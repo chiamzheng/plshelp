@@ -9,6 +9,7 @@ repositories {
     google()       // For Google's Android artifacts
     mavenCentral() // For most other common libraries, including kotlinx-io
     maven("https://api.mapbox.com/downloads/v2/releases/maven") // for mapbox import
+    maven(url = "https://jitpack.io")
     // If you have any other custom repositories (e.g., from MapCompose-mp documentation),
     // you would add them here as well.
 }
@@ -36,11 +37,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 }
 
@@ -69,4 +70,8 @@ dependencies {
     implementation(libs.androidx.foundation.android)
     debugImplementation(libs.compose.ui.tooling)
     implementation ("com.google.code.gson:gson:2.10.1") // For serializing List<String>
+    implementation("com.google.jsinterop:jsinterop-annotations:2.0.0")
+    implementation("org.jspecify:jspecify:0.3.0")
+    implementation("it.unimi.dsi:fastutil:8.5.12")
+    implementation("com.google.guava:guava:33.4.8-jre")
 }
