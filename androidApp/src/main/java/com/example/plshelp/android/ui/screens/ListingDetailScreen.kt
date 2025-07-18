@@ -34,12 +34,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import Listing
+import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import com.example.plshelp.android.ui.components.CategoryChip
 import com.example.plshelp.android.data.ListingDetailViewModel
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -49,11 +52,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
@@ -154,9 +161,9 @@ fun ListingDetailScreen(
                         modifier = Modifier
                             .weight(1f)
                             .verticalScroll(scrollState, enabled = parentScrollEnabled)
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 16.dp,),
                         horizontalAlignment = Alignment.Start,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -168,6 +175,45 @@ fun ListingDetailScreen(
                                 CategoryChip(categoryString = category, isSelected = true, onCategoryClick = {})
                             }
                         }
+
+                        // --- Image Display ---
+                        listing.imageUrl?.let { imageUrl ->
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Wrapped in a Card for a defined background and subtle elevation
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp), // Maintain flexible height
+                                shape = RoundedCornerShape(8.dp) // Match the image's rounded corners
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize() // Make Box fill the Card
+                                        .background(Color(0x38393b)), // Grey background for the area behind the image
+                                    contentAlignment = Alignment.Center // Center the image within the grey box
+                                ) {
+                                    AsyncImage(
+                                        model = imageUrl,
+                                        contentDescription = "Listing Image",
+                                        modifier = Modifier
+                                            .fillMaxWidth() // Allow image to take full width of its container
+                                            // No fixed height here, ContentScale.Fit will determine height within max height of parent
+                                            .clip(RoundedCornerShape(8.dp)), // Keep image corners rounded
+                                        contentScale = ContentScale.Fit, // Ensures entire image is visible, showing gaps on sides if needed
+                                        onLoading = { Log.d("AsyncImage", "Loading started for: $imageUrl") },
+                                        onSuccess = { Log.d("AsyncImage", "Loading SUCCESS for: $imageUrl") },
+                                        onError = { error ->
+                                            Log.e("AsyncImage", "Loading FAILED for: $imageUrl. Error: ${error.result.throwable?.localizedMessage}", error.result.throwable)
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                        } ?: run {
+                            Log.w("ListingDetailScreen", "listing.imgURL is null or empty. No image will be displayed for this listing.")
+                        }
+// --- End Image Display ---
 
                         Text(
                             text = "Description:",
@@ -356,11 +402,11 @@ fun ListingDetailScreen(
                     // --- Static Buttons Section (at the bottom) ---
                     Surface(
                         tonalElevation = 4.dp,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), // Translucent background
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 1f), // Translucent background
                         shape = RoundedCornerShape(12.dp), // Slightly curved border
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp, top = 8.dp, start = 16.dp, end = 16.dp)
+                            .padding(bottom = 8.dp, top = 8.dp, start = 16.dp, end = 16.dp)
                     ) {
                         Row(
                             modifier = Modifier
@@ -422,7 +468,7 @@ fun ListingDetailScreen(
                                                 Button(
                                                     onClick = { showMarkCompletedConfirmationDialog = true },
                                                     enabled = !isLoading,
-                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6c2694), contentColor = MaterialTheme.colorScheme.primary)
                                                 ) {
                                                     Text("Mark as Completed")
                                                 }

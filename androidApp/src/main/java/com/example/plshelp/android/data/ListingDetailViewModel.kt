@@ -1,4 +1,3 @@
-// ListingDetailViewModel.kt
 package com.example.plshelp.android.data
 
 import android.util.Log
@@ -8,7 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import Listing
+import Listing // Assuming Listing is in the root of your 'android' module, adjust if different
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.FieldValue
@@ -66,30 +65,34 @@ class ListingDetailViewModel(
                     val ownerID = documentSnapshot.getString("ownerID") ?: "N/A"
                     val ownerName = documentSnapshot.getString("ownerName") ?: "Anonymous"
                     val timestamp = documentSnapshot.getTimestamp("timestamp")
-                    val status = documentSnapshot.getString("status") ?: "active" // Ensure status is read
+                    val status = documentSnapshot.getString("status") ?: "active"
 
                     val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
                     val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String> ?: emptyList()
+
+                    // --- CORRECTED: Fetching with "imageURL" ---
+                    val imageUrl = documentSnapshot.getString("imageUrl")
 
                     listing = Listing(
                         id = documentSnapshot.id,
                         category = category,
                         coord = coord,
                         description = description,
+                        imageUrl = imageUrl, // Pass the fetched imgURL
                         ownerID = ownerID,
                         ownerName = ownerName,
                         price = price,
                         radius = radius,
                         title = title,
                         timestamp = timestamp,
-                        status = status, // Set status
+                        status = status,
                         deliveryCoord = deliveryCoord,
                         acceptedBy = acceptedBy,
                         fulfilledBy = fulfilledBy
                     )
                     errorMessage = null
                     isLoading = false
-                    Log.d("ListingDetailViewModel", "Listing updated from Firestore listener: ${listing?.title}, Status: ${listing?.status}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy?.joinToString()}")
+                    Log.d("ListingDetailViewModel", "Listing updated from Firestore listener: ${listing?.title}, Status: ${listing?.status}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy?.joinToString()}, Image URL: ${listing?.imageUrl}")
                 } else {
                     errorMessage = "Listing not found or no longer exists."
                     isLoading = false
@@ -121,28 +124,32 @@ class ListingDetailViewModel(
                         val ownerID = documentSnapshot.getString("ownerID") ?: "N/A"
                         val ownerName = documentSnapshot.getString("ownerName") ?: "Anonymous"
                         val timestamp = documentSnapshot.getTimestamp("timestamp")
-                        val status = documentSnapshot.getString("status") ?: "active" // Ensure status is read
+                        val status = documentSnapshot.getString("status") ?: "active"
 
                         val acceptedBy = documentSnapshot.get("acceptedBy") as? List<String> ?: emptyList()
                         val fulfilledBy = documentSnapshot.get("fulfilledBy") as? List<String> ?: emptyList()
+
+                        // --- CORRECTED: Fetching with "imageURL" ---
+                        val imageUrl = documentSnapshot.getString("imageUrl")
 
                         listing = Listing(
                             id = documentSnapshot.id,
                             category = category,
                             coord = coord,
                             description = description,
+                            imageUrl = imageUrl, // Pass the fetched imgURL
                             ownerID = ownerID,
                             ownerName = ownerName,
                             price = price,
                             radius = radius,
                             title = title,
                             timestamp = timestamp,
-                            status = status, // Set status
+                            status = status,
                             deliveryCoord = deliveryCoord,
                             acceptedBy = acceptedBy,
                             fulfilledBy = fulfilledBy
                         )
-                        Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}, Status: ${listing?.status}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy?.joinToString()}")
+                        Log.d("ListingDetailViewModel", "Fetched listing from Firestore: ${listing?.title}, Status: ${listing?.status}, Accepted by: ${listing?.acceptedBy?.size}, Fulfilled by: ${listing?.fulfilledBy?.joinToString()}, Image URL: ${listing?.imageUrl}")
                         listenForListingUpdates()
                     } else {
                         errorMessage = "Listing not found."
@@ -169,7 +176,6 @@ class ListingDetailViewModel(
         }
 
         val currentListing = listing!!
-        // Only allow offer if status is active and not already fulfilled by anyone
         if (currentListing.status != "active") {
             errorMessage = "This request is no longer active."
             return
@@ -215,7 +221,6 @@ class ListingDetailViewModel(
         }
 
         val currentListing = listing!!
-        // Only allow withdrawal if status is active and not yet fulfilled
         if (currentListing.status != "active") {
             errorMessage = "This request is no longer active."
             return
@@ -246,7 +251,6 @@ class ListingDetailViewModel(
         }
     }
 
-    // MODIFIED: fulfillRequest - only moves to fulfilledBy, doesn't change status
     fun fulfillRequest(acceptorId: String) {
         if (listing == null) {
             errorMessage = "Listing data not available."
@@ -262,7 +266,7 @@ class ListingDetailViewModel(
             errorMessage = "This request is no longer active."
             return
         }
-        if (currentListing.fulfilledBy?.contains(acceptorId) == true) { // Check if already "accepted" as fulfiller
+        if (currentListing.fulfilledBy?.contains(acceptorId) == true) {
             errorMessage = "This user has already been selected to fulfill the request."
             return
         }
@@ -277,7 +281,6 @@ class ListingDetailViewModel(
                 firestore.collection("listings").document(listingId)
                     .update(
                         "fulfilledBy", FieldValue.arrayUnion(acceptorId)
-                        // Do NOT change status here. Status remains "active".
                     )
                     .await()
                 errorMessage = null
@@ -291,8 +294,6 @@ class ListingDetailViewModel(
         }
     }
 
-    // NEW FUNCTION: To be called by the owner to mark the request as truly completed
-    // currentUserId is now a parameter
     fun markRequestAsCompleted(currentUserId: String?) {
         if (listing == null) {
             errorMessage = "Listing data not available."
@@ -310,7 +311,6 @@ class ListingDetailViewModel(
             errorMessage = "This request is already marked as completed."
             return
         }
-        // Optional: You might want to enforce that fulfilledBy is not null/empty before marking as completed
         if (listing!!.fulfilledBy.isNullOrEmpty()) {
             errorMessage = "Please select a fulfiller before marking as completed."
             return
@@ -333,7 +333,6 @@ class ListingDetailViewModel(
         }
     }
 
-    // To fetch a user's name given their UID
     fun getUserName(uid: String, onNameFetched: (String) -> Unit) {
         viewModelScope.launch {
             try {
@@ -342,7 +341,7 @@ class ListingDetailViewModel(
                 onNameFetched(name)
             } catch (e: Exception) {
                 Log.e("ListingDetailViewModel", "Error fetching user name for $uid: ${e.message}", e)
-                onNameFetched("Unknown User") // Fallback in case of error
+                onNameFetched("Unknown User")
             }
         }
     }

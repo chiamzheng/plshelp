@@ -8,7 +8,7 @@ data class Listing(
     val category: String,
     val coord: List<Double>,       // Primary/Pickup Location (Lat, Lng)
     val description: String,
-    val imgURL: String? = null,    // Optional image URL
+    val imageUrl: String? = null,    // Optional image URL
     val ownerID: String,
     val ownerName: String,
     val price: String,

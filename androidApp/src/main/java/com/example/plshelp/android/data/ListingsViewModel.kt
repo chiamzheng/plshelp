@@ -404,7 +404,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         val coordGeoPoint = document.get("coord") as? GeoPoint
         val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
         val description = document.getString("description") ?: ""
-        val imgURL = document.getString("imgURL")
+        val imgUrl = document.getString("imgUrl")
         val ownerID = document.getString("ownerID") ?: ""
         val ownerName = document.getString("ownerName") ?: ""
         val price = document.getString("price") ?: ""
@@ -426,7 +426,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
             category = category,
             coord = coord,
             description = description,
-            imgURL = imgURL,
+            imageUrl = imgUrl,
             ownerID = ownerID,
             ownerName = ownerName,
             price = price,
@@ -440,7 +440,7 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
         )
     }
 
-    // --- Action Methods (remain the same) ---
+    // --- Action Methods ---
     fun acceptRequest(listingId: String, userId: String) {
         db.collection("listings").document(listingId).update("acceptedBy", com.google.firebase.firestore.FieldValue.arrayUnion(userId))
             .addOnSuccessListener { Log.d("ListingsViewModel", "Action: User $userId accepted request for $listingId.") }

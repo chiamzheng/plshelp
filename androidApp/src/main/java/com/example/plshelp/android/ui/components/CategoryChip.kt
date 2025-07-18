@@ -58,6 +58,7 @@ fun CategoryChip(
                 "study" -> "Study"
                 "borrow" -> "Borrow"
                 "food" -> "Food"
+                "lost&found" -> "Lost & Found"
                 else -> category.replaceFirstChar {
                     if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
                 }

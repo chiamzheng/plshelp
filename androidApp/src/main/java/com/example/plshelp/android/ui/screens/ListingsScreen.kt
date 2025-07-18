@@ -88,6 +88,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotationInteractionsState
 
+
 enum class DisplayMode {
     DISTANCE,
     WALK_TIME
@@ -539,11 +540,16 @@ fun ListingsScreen(
                                     point = Point.fromLngLat(currentLon.doubleValue, currentLat.doubleValue)
                                 ) {
                                     iconImage = userMarkerIconId
-                                    textField = "You are here"
+                                    textField = "You"
                                     textOffset = listOf(0.0, -2.0)
                                     textAnchor = TextAnchor.TOP
-                                    textColor = Color.Green
+                                    textColor = Color(0xFF298a03)
                                     textSize = 12.0
+                                    iconColor= Color(0xFF298a03)
+                                    textHaloColor = Color.White
+                                    textHaloWidth = 2.0
+                                    iconHaloColor= Color.White
+                                    iconHaloWidth = 2.0
                                 }
 
                                 // Display markers for the listings (using PointAnnotation composable)

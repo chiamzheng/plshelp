@@ -2,6 +2,7 @@ package com.example.plshelp.android.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,9 +12,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.* // This import is crucial for remember, mutableStateOf, derivedStateOf
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.mapSaver
-import androidx.compose.runtime.saveable.rememberSaveable // This import is crucial for rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,7 +30,7 @@ import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.lang.Exception
-import com.example.plshelp.android.ui.components.CategoryChip // Ensure this import is correct
+import com.example.plshelp.android.ui.components.CategoryChip
 import com.example.plshelp.android.LocalUserId
 import com.example.plshelp.android.LocalUserName
 
@@ -53,6 +54,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 // Import for ActivityResultLauncher for the LocationSelectionBlock
 import androidx.activity.result.ActivityResultLauncher
 
+// Firebase Storage imports
+import com.google.firebase.storage.FirebaseStorage
+import java.util.UUID
+
 
 // Data class for Location Selection
 data class LocationSelection(
@@ -74,7 +79,6 @@ data class CategorySelection(
 @Composable
 fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
-    // var subtitle by rememberSaveable { mutableStateOf("") } // REMOVED: Subtitle state
     var description by rememberSaveable { mutableStateOf("") }
     var price by rememberSaveable { mutableStateOf("") }
     var radius by rememberSaveable { mutableStateOf("") }
@@ -91,6 +95,17 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var requestCreated by rememberSaveable { mutableStateOf(false) }
     var showCategoryError by rememberSaveable { mutableStateOf(false) }
 
+    // --- IMAGE URI STATE ---
+    var imageUri by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Launcher for selecting an image from the gallery
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        // "image/*" for selecting an image
+        imageUri = uri?.toString()
+    }
+
     // --- LOCATION SELECTION STATES ---
     var locationSelection by rememberSaveable(stateSaver = locationSelectionSaver) {
         mutableStateOf(LocationSelection(LocationType.NO_LOCATION, null))
@@ -98,7 +113,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var deliveryLocationSelection by rememberSaveable(stateSaver = locationSelectionSaver) {
         mutableStateOf(LocationSelection(LocationType.NO_LOCATION, null))
     }
-    // Category selection state (THIS IS THE ONE YOU WERE ASKING ABOUT)
+    // Category selection state
     var categorySelection by rememberSaveable(stateSaver = categorySelectionSaver) {
         mutableStateOf(CategorySelection(mutableSetOf()))
     }
@@ -111,7 +126,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
     // Track which fields have errors.
     var titleError by rememberSaveable { mutableStateOf(false) }
-    // var subtitleError by rememberSaveable { mutableStateOf(false) } // REMOVED: Subtitle error state
     var descriptionError by rememberSaveable { mutableStateOf(false) }
     var priceError by rememberSaveable { mutableStateOf(false) }
     var radiusError by rememberSaveable { mutableStateOf(false) }
@@ -122,7 +136,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
     // Predefined categories.
     val availableCategories = remember {
-        listOf("Urgent", "Helper", "Delivery", "Free", "Others", "Invite", "Trade", "Advice", "Event", "Study", "Borrow", "Food")
+        listOf("Urgent", "Helper", "Delivery", "Free", "Others", "Invite", "Trade", "Advice", "Event", "Study", "Borrow", "Food", "Lost & Found")
     }
 
     // Location Permission Launcher
@@ -138,7 +152,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
     val createListing: () -> Unit = {
         titleError = title.isBlank()
-        // subtitleError = subtitle.isBlank() // REMOVED: Subtitle error check
         descriptionError = description.isBlank()
         priceError = price.isBlank()
         radiusError = radius.isBlank()
@@ -155,18 +168,31 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             deliveryLocationError = false
         }
 
-        // Updated validation: removed subtitleError
         if (!titleError && !descriptionError && !priceError && !showCategoryError && !radiusError && !locationError && !deliveryLocationError && currentUserId.isNotEmpty()) {
             isCreating = true
             scope.launch {
                 try {
+                    // --- Image Upload Logic ---
+                    val imageUrl = if (imageUri != null) {
+                        try {
+                            uploadImageToFirebase(imageUri!!, currentUserId)
+                        } catch (e: Exception) {
+                            errorMessage = "Failed to upload image: ${e.localizedMessage}"
+                            Log.e("CreateRequestScreen", "Image upload failed", e)
+                            isCreating = false
+                            return@launch // Stop execution if image upload fails
+                        }
+                    } else {
+                        null
+                    }
+                    // --- End Image Upload Logic ---
+
                     val primaryCoordinates = locationSelection.coordinates
                     val deliveryCoordinates = if (isDeliverySelected.value) deliveryLocationSelection.coordinates else null
 
                     if (primaryCoordinates != null && (!isDeliverySelected.value || deliveryCoordinates != null)) {
                         val newListing = hashMapOf(
                             "title" to title,
-                            // "subtitle" to subtitle, // REMOVED: Subtitle field from Firestore map
                             "description" to description,
                             "price" to price,
                             "category" to categorySelection.selectedCategories.toList(),
@@ -176,24 +202,25 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             "ownerID" to currentUserId,
                             "ownerName" to currentUserName,
                             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
-                            "status" to "active"
+                            "status" to "active",
+                            "imageUrl" to imageUrl // Add the uploaded image URL here
                         )
 
                         firestore.collection("listings").add(newListing).await()
 
+                        // Reset states after successful creation
                         title = ""
-                        // subtitle = "" // REMOVED: Reset subtitle state
                         description = ""
                         price = ""
                         categorySelection = CategorySelection(mutableSetOf())
                         radius = ""
                         locationSelection = LocationSelection(LocationType.NO_LOCATION, null)
                         deliveryLocationSelection = LocationSelection(LocationType.NO_LOCATION, null)
+                        imageUri = null // Reset image URI
                         requestCreated = true
                         showCategoryError = false
                         errorMessage = null
                         titleError = false
-                        // subtitleError = false // REMOVED: Reset subtitle error state
                         descriptionError = false
                         priceError = false
                         radiusError = false
@@ -250,28 +277,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             Text("Title is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
-        // REMOVED: OutlinedTextField for subtitle
-        /*
-        OutlinedTextField(
-            value = subtitle,
-            onValueChange = {
-                subtitle = it
-                subtitleError = false
-            },
-            label = { Text("Brief Summary") },
-            modifier = Modifier.fillMaxWidth(),
-            isError = subtitleError,
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = if (subtitleError) Color.Red else MaterialTheme.colorScheme.primary,
-                unfocusedIndicatorColor = if (subtitleError) Color.Red else MaterialTheme.colorScheme.onBackground,
-                errorIndicatorColor = Color.Red
-            )
-        )
-        if (subtitleError) {
-            Text("Subtitle is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-        */
-
         OutlinedTextField(
             value = description,
             onValueChange = {
@@ -310,6 +315,22 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         if (priceError) {
             Text("Price is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+
+        // --- IMAGE SELECTION UI (Placed after Price) ---
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = { imagePickerLauncher.launch("image/*") }, // Launch the gallery picker
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Select an Image")
+        }
+        if (imageUri != null) {
+            Text(
+                "Image Selected: ${imageUri?.substringAfterLast("/")}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        // --- END IMAGE SELECTION UI ---
 
         Text("Category", style = MaterialTheme.typography.titleMedium)
         if (showCategoryError) {
@@ -438,6 +459,23 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
+
+// Add this function outside of the CreateRequestScreen composable
+suspend fun uploadImageToFirebase(imageUri: String, userId: String): String {
+    val storage = FirebaseStorage.getInstance()
+    val storageRef = storage.reference
+    // Generate a unique file name for the image
+    val fileName = UUID.randomUUID().toString() + ".jpg"
+    // Define the path: images/<userId>/<fileName>
+    val imageRef = storageRef.child("images/$userId/$fileName")
+
+    // Upload the image file
+    val uploadTask = imageRef.putFile(Uri.parse(imageUri)).await()
+
+    // Get the download URL of the uploaded image
+    return imageRef.downloadUrl.await().toString()
+}
+
 
 @Composable
 fun LocationSelectionBlock(

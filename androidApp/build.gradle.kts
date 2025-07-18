@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.firebase.inappmessaging.display)
     implementation(libs.navigation.compose)
     implementation(libs.firebase.firestore.ktx)
+    implementation(libs.firebase.storage.ktx)
     implementation(libs.androidx.foundation.android)
     implementation(libs.coroutinesPlayServices)
     implementation("com.mapbox.maps:android:11.12.2")
@@ -74,4 +75,5 @@ dependencies {
     implementation("org.jspecify:jspecify:0.3.0")
     implementation("it.unimi.dsi:fastutil:8.5.12")
     implementation("com.google.guava:guava:33.4.8-jre")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
