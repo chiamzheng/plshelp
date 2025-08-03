@@ -2,7 +2,11 @@ package com.example.plshelp.android.ui.screens
 
 import Listing // Correct import for Listing
 import android.location.Location
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,10 +63,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -158,6 +163,7 @@ fun ListingsScreen(
     }
 
     var selectedTab by rememberSaveable { mutableStateOf(ListingsTab.PUBLIC_LISTINGS) }
+    var isEngagedListingsCollapsed by rememberSaveable { mutableStateOf(true) }
 
     val mapViewportState = rememberMapViewportState {
         setCameraOptions {
@@ -246,19 +252,34 @@ fun ListingsScreen(
         }
     }
 
+    // --- UPDATED FILTERING LOGIC ---
     val filteredGeneralListings = remember(generalListingsDeduplicated, filterCategorySelection.selectedCategories) {
-        if (filterCategorySelection.selectedCategories.isEmpty()) {
+        val selectedFilters = filterCategorySelection.selectedCategories
+        if (selectedFilters.isEmpty()) {
             generalListingsDeduplicated
         } else {
             generalListingsDeduplicated.filter { listing ->
-                val listingCategories = listing.category
-                    .split(", ")
-                    .map { it.trim().lowercase(Locale.getDefault()) }
-                    .toSet()
-                listingCategories.any { it in filterCategorySelection.selectedCategories }
+                // Check if the "free" filter is selected AND the listing's price is "Free"
+                val isFreePrice = selectedFilters.contains("free") && listing.price == "Free"
+
+                // Check for other category filters
+                val hasMatchingCategory = if (selectedFilters.any { it != "free" }) {
+                    val listingCategories = listing.category
+                        .split(", ")
+                        .map { it.trim().lowercase(Locale.getDefault()) }
+                        .toSet()
+                    // Check if any of the other selected filters match a category on the listing
+                    listingCategories.any { selectedFilters.contains(it) }
+                } else {
+                    false
+                }
+
+                // A listing is a match if it's either "Free" or matches a selected category
+                isFreePrice || hasMatchingCategory
             }
         }
     }
+    // --- END OF UPDATED FILTERING LOGIC ---
 
     val sortedOwnedListings = remember(allOwnedListings) {
         allOwnedListings.sortedWith(compareBy<Listing> { listing ->
@@ -322,61 +343,87 @@ fun ListingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                     ) {
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Your Engaged Listings",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
+                        // --- START of Collapsible Engaged Listings Section ---
+                        if (sortedCombinedEngagedListings.isNotEmpty()) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { isEngagedListingsCollapsed = !isEngagedListingsCollapsed }
+                                        .padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Your Engaged Listings",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "${sortedCombinedEngagedListings.size} listings",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray,
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                        Icon(
+                                            imageVector = if (isEngagedListingsCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Toggle engaged listings",
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isLoadingListingsUserIsFulfilling || isLoadingListingsUserAcceptedButNotFulfilling) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(50.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                            }
+
+                            // Use AnimatedVisibility for a smooth collapse/expand animation
+                            item {
+                                AnimatedVisibility(
+                                    visible = !isEngagedListingsCollapsed,
+                                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
+                                ) {
+                                    Column {
+                                        sortedCombinedEngagedListings.forEach { listing ->
+                                            val statusText = when {
+                                                listingsUserIsFulfilling.any { it.id == listing.id } -> "ACTIVE"
+                                                listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> "PENDING"
+                                                else -> null
+                                            }
+                                            val statusColor = when {
+                                                listingsUserIsFulfilling.any { it.id == listing.id } -> Color(0xFF338a4d)
+                                                listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> Color(0xFFb0aa0c)
+                                                else -> null
+                                            }
+
+                                            ListingCard(
+                                                listing = listing,
+                                                onNavigateToDetail = onNavigateToDetail,
+                                                currentLat = currentLat.doubleValue,
+                                                currentLon = currentLon.doubleValue,
+                                                displayMode = displayMode,
+                                                status = if (statusText != null && statusColor != null) ListingStatus(statusText, statusColor) else null
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+                                    }
+                                }
                             }
                         }
+                        // --- END of Collapsible Engaged Listings Section ---
 
-                        val overallLoadingEngaged = isLoadingListingsUserIsFulfilling || isLoadingListingsUserAcceptedButNotFulfilling
-                        if (overallLoadingEngaged && sortedCombinedEngagedListings.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
-                            }
-                        } else if (sortedCombinedEngagedListings.isEmpty()) {
-                            item {
-                                Text(
-                                    text = "No active or pending engagements.",
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                                    textAlign = TextAlign.Center,
-                                    color = Color.Gray
-                                )
-                            }
-                        } else {
-                            items(sortedCombinedEngagedListings) { listing ->
-                                val statusText = when {
-                                    listingsUserIsFulfilling.any { it.id == listing.id } -> "ACTIVE"
-                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> "PENDING"
-                                    else -> null
-                                }
-                                val statusColor = when {
-                                    listingsUserIsFulfilling.any { it.id == listing.id } -> Color(0xFF338a4d)
-                                    listingsUserAcceptedButNotFulfilling.any { it.id == listing.id } -> Color(0xFFb0aa0c)
-                                    else -> null
-                                }
-
-                                ListingCard(
-                                    listing = listing,
-                                    onNavigateToDetail = onNavigateToDetail,
-                                    currentLat = currentLat.doubleValue,
-                                    currentLon = currentLon.doubleValue,
-                                    displayMode = displayMode,
-                                    status = if (statusText != null && statusColor != null) ListingStatus(statusText, statusColor) else null
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-                        }
 
                         item {
                             Row(
@@ -409,14 +456,24 @@ fun ListingsScreen(
 
                         if (isLoading && filteredGeneralListings.isEmpty()) {
                             item {
-                                Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     CircularProgressIndicator()
                                 }
                             }
-                        } else if (filteredGeneralListings.isEmpty() && !isLoading) {
+                        } else if (filteredGeneralListings.isEmpty()) {
                             item {
-                                Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("No other listings available.", fontSize = 18.sp, color = Color.Gray)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No listings available in this area", fontSize = 18.sp, color = Color.Gray)
                                 }
                             }
                         } else {
@@ -455,7 +512,7 @@ fun ListingsScreen(
                                     CircularProgressIndicator()
                                 }
                             }
-                        } else if (allOwnedListings.isEmpty() && !isLoadingAllOwnedListings) {
+                        } else if (allOwnedListings.isEmpty()) {
                             item {
                                 Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                                     Text(
@@ -638,7 +695,7 @@ fun ListingsScreen(
         )
     }
 
-    // --- Filter Sheet (your existing code) ---
+    // --- Filter Sheet ---
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
@@ -750,7 +807,7 @@ fun ListingCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigateToDetail(listing) }
-    ) {
+        ) {
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -847,8 +904,14 @@ fun ListingCard(
                     )
                     .padding(horizontal = 8.dp, vertical = 0.dp)
             ) {
+                // Conditional reward text
+                val rewardText = if (listing.price.toFloatOrNull() != null) {
+                    "Reward: $${listing.price}"
+                } else {
+                    "Reward: ${listing.price}"
+                }
                 Text(
-                    text = "Reward: $${listing.price}",
+                    text = rewardText,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp,
                     color = Color.White
