@@ -13,17 +13,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine // Import combine
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.SharingStarted // Import SharingStarted
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import android.util.Log
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
 
 import java.util.concurrent.TimeUnit
-import com.google.common.geometry.S2CellId // Correct S2 import
-import com.google.common.geometry.S2LatLng // Correct S2 import
+import com.google.common.geometry.S2CellId
+import com.google.common.geometry.S2LatLng
 
 class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
 
@@ -76,25 +75,25 @@ class ListingsViewModel(private val currentOwnerId: String) : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
-    // --- NEW: Listings where current user is fulfilling (helper's active requests) ---
+    // --- Listings where current user is fulfilling (helper's active requests) ---
     private val _listingsUserIsFulfilling = MutableStateFlow<List<Listing>>(emptyList())
     val listingsUserIsFulfilling: StateFlow<List<Listing>> = _listingsUserIsFulfilling
     private val _isLoadingListingsUserIsFulfilling = MutableStateFlow(false)
     val isLoadingListingsUserIsFulfilling: StateFlow<Boolean> = _isLoadingListingsUserIsFulfilling
 
-    // --- RENAMED: Listings where current user accepted but not yet fulfilling (helper's accepted offers awaiting confirmation) ---
+    // --- Listings where current user accepted but not yet fulfilling (helper's accepted offers awaiting confirmation) ---
     private val _listingsUserAcceptedButNotFulfilling = MutableStateFlow<List<Listing>>(emptyList())
     val listingsUserAcceptedButNotFulfilling: StateFlow<List<Listing>> = _listingsUserAcceptedButNotFulfilling
     private val _isLoadingListingsUserAcceptedButNotFulfilling = MutableStateFlow(false)
     val isLoadingListingsUserAcceptedButNotFulfilling: StateFlow<Boolean> = _isLoadingListingsUserAcceptedButNotFulfilling
 
-    // --- RENAMED: Listings owned by current user where they've accepted others' offers (owner's accepted requests) ---
+    // --- Listings owned by current user where they've accepted others' offers (owner's accepted requests) ---
     private val _listingsOwnedAndAcceptedOffers = MutableStateFlow<List<Listing>>(emptyList())
     val listingsOwnedAndAcceptedOffers: StateFlow<List<Listing>> = _listingsOwnedAndAcceptedOffers
     private val _isLoadingListingsOwnedAndAcceptedOffers = MutableStateFlow(false)
     val isLoadingListingsOwnedAndAcceptedOffers: StateFlow<Boolean> = _isLoadingListingsOwnedAndAcceptedOffers
 
-    // --- NEW: All Listings owned by the current user (for "Your Listings" tab) ---
+    // --- All Listings owned by the current user (for "Your Listings" tab) ---
     private val _listingsOwnedByCurrentUser = MutableStateFlow<List<Listing>>(emptyList())
     val listingsOwnedByCurrentUser: StateFlow<List<Listing>> = _listingsOwnedByCurrentUser
     private val _isLoadingListingsOwnedByCurrentUser = MutableStateFlow(false)

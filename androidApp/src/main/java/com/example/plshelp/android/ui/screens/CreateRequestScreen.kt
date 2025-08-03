@@ -62,6 +62,10 @@ import androidx.compose.ui.draw.clip
 
 // Firebase Storage imports
 import com.google.firebase.storage.FirebaseStorage
+import com.mapbox.geojson.Polygon
+import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
+import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotationState
+import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
 import java.util.UUID
 
 
@@ -136,6 +140,9 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     val isDeliverySelected = remember {
         derivedStateOf { categorySelection.selectedCategories.contains("delivery") }
     }
+    val isLostAndFoundSelected = remember {
+        derivedStateOf { categorySelection.selectedCategories.contains("lost & found") }
+    }
     // --- END LOCATION SELECTION STATES ---
 
     // --- PRICE RELATED STATES ---
@@ -160,6 +167,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     val availableCategories = remember {
         listOf("Urgent", "Helper", "Delivery", "Others", "Invite", "Trade", "Advice", "Event", "Study", "Borrow", "Food", "Lost & Found")
     }
+    // Radius section for Lost & Found
+    val predefinedRadii = remember { listOf("50", "100", "200", "500") }
 
     // Location Permission Launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -197,9 +206,11 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 // No validation errors for "Free"
             }
             PriceOption.Money -> {
+                // Corrected to make the field required
                 if (moneyPriceValue.isBlank()) {
-                    finalPrice = "0.00" // Store "0.00" if no money entered, but "Money" option selected
-                    // Not considered an error, just an unspecified price
+                    localPriceError = true
+                    allInputsValid = false
+                    finalPrice = ""
                 } else if (moneyPriceValue.length > MAX_PRICE_CHARS) {
                     localPriceError = true
                     allInputsValid = false
@@ -213,6 +224,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 }
             }
             PriceOption.Other -> {
+                // Corrected to make the field required
                 if (otherRewardValue.isBlank()) {
                     localPriceError = true
                     allInputsValid = false
@@ -230,8 +242,12 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
 
         // Radius validation
-        val parsedRadius = radius.toLongOrNull()
-        radiusError = radius.isBlank() || parsedRadius == null || parsedRadius <= 0
+        // Conditionally validate radius only if "Lost & Found" is selected
+        radiusError = if (isLostAndFoundSelected.value) {
+            radius.isBlank() // Check if a radius was selected
+        } else {
+            false // No error if category is not "Lost & Found"
+        }
         if (radiusError) allInputsValid = false
 
         // Category validation
@@ -284,7 +300,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             "category" to categorySelection.selectedCategories.toList(),
                             "coord" to primaryCoordinates,
                             "deliveryCoord" to deliveryCoordinates,
-                            "radius" to parsedRadius!!, // parsedRadius is guaranteed non-null if allInputsValid is true
+                            "radius" to if (isLostAndFoundSelected.value) radius.toLong() else null, // Conditionally add radius
                             "ownerID" to currentUserId,
                             "ownerName" to currentUserName,
                             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
@@ -366,14 +382,14 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 unfocusedIndicatorColor = if (titleError || title.length > MAX_TITLE_CHARS) Color.Red else MaterialTheme.colorScheme.onBackground,
                 errorIndicatorColor = Color.Red
             ),
-            singleLine = true // Often good for titles
+            singleLine = true // No wrapping
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (titleError && !title.isBlank()) { // Only show "required" if blank, otherwise specific length error
+            if (titleError && title.isBlank()) {
                 Text("Title is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             } else if (title.length > MAX_TITLE_CHARS) {
                 Text(
@@ -408,7 +424,12 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             minLines = 3 // Allow multiple lines for description
         )
         if (descriptionError) {
-            Text("Description is required", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Description is required",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth() // Add this modifier
+            )
         }
         Spacer(modifier = Modifier.height(16.dp)) // Add spacing after description
 
@@ -491,7 +512,14 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (priceInputError && moneyPriceValue.isNotBlank()) { // Show specific error if input exists
+                    // Corrected to show a single, clear message
+                    if (priceInputError && moneyPriceValue.isBlank()) {
+                        Text(
+                            "Price is required",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else if (priceInputError) { // For invalid format or other errors
                         Text(
                             "Invalid number format or length.",
                             color = MaterialTheme.colorScheme.error,
@@ -533,7 +561,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (priceInputError && otherRewardValue.isBlank()) { // Show required if blank
+                    // Corrected to show a single, clear message
+                    if (priceInputError && otherRewardValue.isBlank()) {
                         Text(
                             "Reward description is required",
                             color = MaterialTheme.colorScheme.error,
@@ -635,7 +664,9 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             locationError = locationError,
             parentScrollEnabled = parentScrollEnabled,
             onParentScrollEnabledChanged = { parentScrollEnabled = it },
-            locationPermissionLauncher = locationPermissionLauncher
+            locationPermissionLauncher = locationPermissionLauncher,
+            radius = if (isLostAndFoundSelected.value) radius.toLongOrNull() else null,
+            isLostAndFound = isLostAndFoundSelected.value
         )
 
         if (isDeliverySelected.value) {
@@ -650,30 +681,59 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 locationError = deliveryLocationError,
                 parentScrollEnabled = parentScrollEnabled,
                 onParentScrollEnabledChanged = { parentScrollEnabled = it },
-                locationPermissionLauncher = locationPermissionLauncher
+                locationPermissionLauncher = locationPermissionLauncher,
+                radius = null,
+                isLostAndFound = false
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = radius,
-            onValueChange = {
-                radius = it
-                radiusError = false
-            },
-            label = { Text("Radius (meters)") },
-            modifier = Modifier.fillMaxWidth(),
-            isError = radiusError,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = if (radiusError) Color.Red else MaterialTheme.colorScheme.primary,
-                unfocusedIndicatorColor = if (radiusError) Color.Red else MaterialTheme.colorScheme.onBackground,
-                errorIndicatorColor = Color.Red
-            )
-        )
-        if (radiusError) {
-            Text("Radius is required and must be a positive number", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        // --- Conditionally Display Radius Selector ---
+        if (isLostAndFoundSelected.value) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Search Radius", style = MaterialTheme.typography.titleMedium)
+
+            // Segmented control for radius
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(pillCornerRadius))
+                    .border(1.dp, borderColor, RoundedCornerShape(pillCornerRadius)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                predefinedRadii.forEachIndexed { index, predefinedRadius ->
+                    val isSelected = (predefinedRadius == radius)
+                    val backgroundColor = if (isSelected) selectedBackgroundColor else unselectedBackgroundColor
+                    val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(backgroundColor)
+                            .clickable {
+                                radius = predefinedRadius
+                                radiusError = false
+                            }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "${predefinedRadius}m", color = textColor)
+                    }
+
+                    if (index < predefinedRadii.lastIndex) {
+                        Divider(
+                            color = borderColor,
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                        )
+                    }
+                }
+            }
+            if (radiusError) {
+                Text("Radius is required for Lost & Found listings", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         }
+        // --- End Conditional Radius Selector ---
 
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = createListing, enabled = !isCreating) {
@@ -726,6 +786,23 @@ suspend fun uploadImageToFirebase(imageUri: String, userId: String): String {
 }
 
 
+// Helper function to generate a circle polygon with a given center and radius in meters
+// This function creates the vertices of the circle, making it a "real-world" shape
+fun createCirclePolygon(center: Point, radiusInMeters: Double): Polygon {
+    val points: MutableList<Point> = mutableListOf()
+    val earthRadius = 6378137.0 // meters
+    val segments = 64 // Number of vertices for the circle
+
+    for (i in 0..segments) {
+        val angle = Math.PI * 2 * i / segments
+        val latitude = center.latitude() + (radiusInMeters / earthRadius) * (180 / Math.PI) * Math.cos(angle)
+        val longitude = center.longitude() + (radiusInMeters / earthRadius) * (180 / Math.PI) / Math.cos(center.latitude() * Math.PI / 180) * Math.sin(angle)
+        points.add(Point.fromLngLat(longitude, latitude))
+    }
+
+    return Polygon.fromLngLats(listOf(points))
+}
+
 @Composable
 fun LocationSelectionBlock(
     title: String,
@@ -734,7 +811,9 @@ fun LocationSelectionBlock(
     locationError: Boolean,
     parentScrollEnabled: Boolean,
     onParentScrollEnabledChanged: (Boolean) -> Unit,
-    locationPermissionLauncher: ActivityResultLauncher<String>
+    locationPermissionLauncher: ActivityResultLauncher<String>,
+    radius: Long?,
+    isLostAndFound: Boolean
 ) {
     val context = LocalContext.current
 
@@ -826,6 +905,20 @@ fun LocationSelectionBlock(
                     iconImage = markerId
                 }
             }
+
+            // Replaced CircleAnnotation with PolygonAnnotation for a scalable circle
+            if (isLostAndFound && radius != null && radius > 0) {
+                locationSelection.coordinates?.let { geoPoint ->
+                    val centerPoint = Point.fromLngLat(geoPoint.longitude, geoPoint.latitude)
+                    val circlePolygon = createCirclePolygon(centerPoint, radius.toDouble())
+                    PolygonAnnotation(
+                        points = circlePolygon.coordinates()
+                    ) {
+                        fillColor = Color.Blue
+                        fillOpacity = 0.3
+                    }
+                }
+            }
         }
     }
 
@@ -841,12 +934,6 @@ fun LocationSelectionBlock(
                 }
             }",
             style = MaterialTheme.typography.bodyMedium
-        )
-    } else {
-        Text(
-            text = "No location selected",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error
         )
     }
 }

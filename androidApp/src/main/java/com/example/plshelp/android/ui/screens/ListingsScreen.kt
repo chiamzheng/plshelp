@@ -102,7 +102,7 @@ enum class DisplayMode {
 data class ListingStatus(val text: String, val color: Color)
 
 enum class ListingsTab {
-    PUBLIC_LISTINGS, YOUR_LISTINGS, MAP_VIEW
+    AVAILABLE, MAP_VIEW
 }
 
 private const val S2_CELL_LEVEL = 13
@@ -162,7 +162,7 @@ fun ListingsScreen(
         )
     }
 
-    var selectedTab by rememberSaveable { mutableStateOf(ListingsTab.PUBLIC_LISTINGS) }
+    var selectedTab by rememberSaveable { mutableStateOf(ListingsTab.AVAILABLE) }
     var isEngagedListingsCollapsed by rememberSaveable { mutableStateOf(true) }
 
     val mapViewportState = rememberMapViewportState {
@@ -338,7 +338,7 @@ fun ListingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             when (selectedTab) {
-                ListingsTab.PUBLIC_LISTINGS -> {
+                ListingsTab.AVAILABLE -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
@@ -485,64 +485,6 @@ fun ListingsScreen(
                                     currentLon = currentLon.doubleValue,
                                     displayMode = displayMode,
                                     status = null
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-                        }
-                    }
-                }
-
-                ListingsTab.YOUR_LISTINGS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = "Your Posted Listings",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                        }
-
-                        if (isLoadingAllOwnedListings && allOwnedListings.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
-                            }
-                        } else if (allOwnedListings.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "You haven't posted any listings yet.",
-                                        fontSize = 18.sp,
-                                        color = Color.Gray,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        } else {
-                            items(sortedOwnedListings) { listing ->
-                                val statusForUserListing: ListingStatus? = when {
-                                    listing.status == "fulfilled" ->
-                                        ListingStatus("COMPLETED", Color(0xFF6A1B9A))
-                                    listing.fulfilledBy?.isNotEmpty() == true && listing.status == "active" ->
-                                        ListingStatus("ACTIVE", Color(0xFF338a4d))
-                                    listing.acceptedBy.isNotEmpty() && listing.fulfilledBy.isNullOrEmpty() ->
-                                        ListingStatus("OFFER RECEIVED", Color(0xFFb0aa0c))
-                                    else ->
-                                        null
-                                }
-
-                                ListingCard(
-                                    listing = listing,
-                                    onNavigateToDetail = onNavigateToDetail,
-                                    currentLat = currentLat.doubleValue,
-                                    currentLon = currentLon.doubleValue,
-                                    displayMode = displayMode,
-                                    status = statusForUserListing
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                             }

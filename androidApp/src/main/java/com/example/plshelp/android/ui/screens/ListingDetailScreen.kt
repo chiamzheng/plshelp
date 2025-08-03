@@ -80,6 +80,7 @@ import com.mapbox.maps.extension.compose.rememberMapState
 import com.example.plshelp.android.LocalUserId
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.plshelp.android.data.ChatType
+import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,13 +231,20 @@ fun ListingDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            // Conditional reward text
+                            val rewardText = if (listing.price.toFloatOrNull() != null) {
+                                "Reward: $${listing.price}"
+                            } else {
+                                "Reward: ${listing.price}"
+                            }
                             Text(
-                                text = "Price: $${listing.price}",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
+                                text = rewardText,
+                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp,
+                                color = Color.White
                             )
+                            //end conditional reward text
+
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
                                 text = "Posted by: ${listing.ownerName}",
@@ -254,7 +262,8 @@ fun ListingDetailScreen(
                             Text(
                                 text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray
+                                color = Color.DarkGray,
+                                fontSize = 10.sp
                             )
                             Text(
                                 text = "Delivery Location:",
@@ -264,7 +273,8 @@ fun ListingDetailScreen(
                             Text(
                                 text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray
+                                color = Color.DarkGray,
+                                fontSize = 10.sp
                             )
                         } else {
                             Text(
@@ -275,7 +285,8 @@ fun ListingDetailScreen(
                             Text(
                                 text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray
+                                color = Color.DarkGray,
+                                fontSize = 10.sp
                             )
                         }
 
@@ -354,6 +365,21 @@ fun ListingDetailScreen(
 
                                         mapViewportState.flyTo(cameraOptions)
                                     }
+
+                                    // --- Conditionally display radius circle for Lost & Found listings ---
+                                    val isLostAndFound = listing.category.contains("Lost & Found", ignoreCase = true)
+                                    if (isLostAndFound && listing.radius > 0 && listing.coord.size == 2) {
+                                        val centerPoint = Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                        val circlePolygon = createCirclePolygon(centerPoint, listing.radius.toDouble())
+                                        PolygonAnnotation(
+                                            points = circlePolygon.coordinates()
+                                        ) {
+                                            fillColor = Color.Blue
+                                            fillOpacity = 0.3
+                                        }
+                                    }
+                                    // --- End radius circle logic ---
+
 
                                     if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
                                         PointAnnotation(

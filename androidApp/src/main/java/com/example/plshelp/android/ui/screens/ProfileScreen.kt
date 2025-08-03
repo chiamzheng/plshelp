@@ -1,10 +1,7 @@
 package com.example.plshelp.android.ui.screens
 
-import android.util.Log // Make sure this is imported
-import androidx.compose.foundation.clickable
+import android.util.Log
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -14,34 +11,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.plshelp.android.LocalUserId
 import com.example.plshelp.android.LocalUserName
 import com.example.plshelp.android.data.DisplayModeRepository
+import com.example.plshelp.android.data.ListingsViewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import Listing
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 @Composable
 fun ProfileScreen(
     onSignOut: () -> Unit,
     onNavigateToDetail: (Listing) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listingsViewModel: ListingsViewModel = viewModel(factory = ListingsViewModel.Factory(LocalUserId.current))
 ) {
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
-    val user = auth.currentUser // Note: This `user` object might be stale if AuthStateListener updates
-    // after this Composable is initially read. Always prefer `LocalUserId.current`
-    // and `LocalUserName.current` for reactivity.
+    val user = auth.currentUser
 
     val currentUserId = LocalUserId.current
-    // Correctly consume MutableState<String> from CompositionLocal
-    var currentUserName by LocalUserName.current // This delegates to the MutableState.value getter/setter
+    var currentUserName by LocalUserName.current
 
     Log.d("PROFILE_DEBUG", "ProfileScreen recomposes. currentUserId: $currentUserId, currentUserName: $currentUserName")
 
@@ -54,91 +52,29 @@ fun ProfileScreen(
     var showChangePasswordDialog by rememberSaveable { mutableStateOf(false) }
     var showReAuthDialog by rememberSaveable { mutableStateOf(false) }
 
-    var myListings by remember { mutableStateOf<List<Listing>>(emptyList()) }
-    var isLoadingMyListings by remember { mutableStateOf(true) }
-    var myListingsErrorMessage by remember { mutableStateOf<String?>(null) }
+    val myListings by listingsViewModel.listingsOwnedByCurrentUser.collectAsState()
+    val isLoadingMyListings by listingsViewModel.isLoadingListingsOwnedByCurrentUser.collectAsState()
 
     val context = LocalContext.current
     val displayModeRepository = remember { DisplayModeRepository(context) }
     val displayMode by displayModeRepository.displayModeFlow.collectAsState(initial = DisplayMode.DISTANCE)
     val scope = rememberCoroutineScope()
 
-    // LaunchedEffect to fetch user's listings
-    LaunchedEffect(currentUserId) {
-        Log.d("PROFILE_DEBUG", "ProfileScreen LaunchedEffect for listings triggered. currentUserId: $currentUserId")
-        if (currentUserId.isNotEmpty()) {
-            isLoadingMyListings = true
-            myListingsErrorMessage = null
-            try {
-                Log.d("PROFILE_DEBUG", "Attempting to fetch listings for UID: $currentUserId")
-                val querySnapshot = db.collection("listings")
-                    .whereEqualTo("ownerID", currentUserId)
-                    .get()
-                    .await()
-
-                val fetchedListings = mutableListOf<Listing>()
-                for (document in querySnapshot.documents) {
-                    try {
-                        // Your existing listing parsing logic
-                        val title = document.getString("title") ?: "N/A"
-                        val description = document.getString("description") ?: "N/A"
-                        val price = document.getString("price") ?: "0.00"
-                        val categoryList = document.get("category") as? List<String> ?: emptyList()
-                        val category = categoryList.joinToString(", ")
-                        val coordGeoPoint = document.get("coord") as? com.google.firebase.firestore.GeoPoint
-                        val coord = coordGeoPoint?.let { listOf(it.latitude, it.longitude) } ?: emptyList()
-
-                        val deliveryCoordGeoPoint = document.get("deliveryCoord") as? com.google.firebase.firestore.GeoPoint
-                        val deliveryCoord = deliveryCoordGeoPoint?.let { listOf(it.latitude, it.longitude) }
-
-                        val radius = document.getLong("radius") ?: 0L
-                        val ownerID = document.getString("ownerID") ?: "N/A"
-                        val ownerName = document.getString("ownerName") ?: "Anonymous"
-                        val timestamp = document.getTimestamp("timestamp")
-                        val status = document.getString("status") ?: "active"
-
-                        val acceptedBy = document.get("acceptedBy") as? List<String> ?: emptyList()
-                        val fulfilledBy = document.get("fulfilledBy") as? List<String>?: emptyList()
-
-
-                        fetchedListings.add(
-                            Listing(
-                                id = document.id,
-                                category = category,
-                                coord = coord,
-                                description = description,
-                                ownerID = ownerID,
-                                ownerName = ownerName,
-                                price = price,
-                                radius = radius,
-                                title = title,
-                                timestamp = timestamp,
-                                status = status,
-                                deliveryCoord = deliveryCoord,
-                                acceptedBy = acceptedBy,
-                                fulfilledBy = fulfilledBy
-                            )
-                        )
-                    } catch (e: Exception) {
-                        Log.e("ProfileScreen", "Error parsing listing document ${document.id}: ${e.message}", e)
-                    }
+    // Sorting logic
+    val sortedMyListings by remember(myListings) {
+        derivedStateOf {
+            myListings.sortedWith(compareBy { listing ->
+                when {
+                    // Priority 1: "Active" listings where `fulfilledBy` is not empty
+                    listing.status == "active" && listing.fulfilledBy?.isNotEmpty() == true -> 0
+                    // Priority 2: "Active" listings with accepted offers
+                    listing.status == "active" && listing.acceptedBy.isNotEmpty() -> 1
+                    // Priority 3: All other listings (active with no offers, or fulfilled status)
+                    else -> 2
                 }
-                myListings = fetchedListings
-                Log.d("PROFILE_DEBUG", "Successfully fetched ${fetchedListings.size} listings for UID: $currentUserId")
-            } catch (e: Exception) {
-                myListingsErrorMessage = "Error fetching your listings: ${e.message}"
-                Log.e("ProfileScreen", "Error fetching user listings for UID $currentUserId: ${e.message}", e)
-            } finally {
-                isLoadingMyListings = false
-            }
-        } else {
-            isLoadingMyListings = false
-            myListings = emptyList() // Clear listings when user logs out
-            myListingsErrorMessage = "User ID not available to fetch listings."
-            Log.d("PROFILE_DEBUG", "User ID is empty. Not fetching listings for profile.")
+            })
         }
     }
-
 
     Column(
         modifier = modifier
@@ -158,7 +94,7 @@ fun ProfileScreen(
                     .padding(vertical = 12.dp, horizontal = 16.dp)
             ) {
                 Text(
-                    text = "${if (currentUserName.isNotEmpty()) currentUserName else "Guest"}'s Profile", // Display "Guest" if name is empty
+                    text = "${if (currentUserName.isNotEmpty()) currentUserName else "Guest"}'s Profile",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -166,7 +102,7 @@ fun ProfileScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Email: ${user?.email ?: "Email not available"}", // This `user` is from `auth.currentUser`
+                    text = "Email: ${user?.email ?: "Email not available"}",
                     fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -243,22 +179,28 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // --- YOUR LISTINGS SECTION ---
         Text(
-            "My Listings",
-            fontSize = 20.sp,
+            text = "Your Posted Listings",
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .align(Alignment.Start)
-                .padding(start = 16.dp)
         )
-        Spacer(modifier = Modifier.height(8.dp))
 
-        if (isLoadingMyListings) {
+        if (isLoadingMyListings && myListings.isEmpty()) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-        } else if (myListingsErrorMessage != null) {
-            Text(myListingsErrorMessage!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.CenterHorizontally))
         } else if (myListings.isEmpty()) {
-            Text("You have no listings.", modifier = Modifier.align(Alignment.CenterHorizontally))
+            Text(
+                text = "You haven't posted any listings yet.",
+                fontSize = 18.sp,
+                color = Color.Gray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp)
+            )
         } else {
             Column(
                 modifier = Modifier
@@ -266,27 +208,39 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                myListings.forEach { listing ->
+                sortedMyListings.forEach { listing ->
+                    // Corrected Listing Status logic based on your request
+                    val statusForUserListing: ListingStatus? = when {
+                        listing.status == "active" && listing.fulfilledBy?.isNotEmpty() == true ->
+                            ListingStatus("ACTIVE", Color(0xFF338a4d))
+                        listing.status == "active" && listing.acceptedBy.isNotEmpty() ->
+                            ListingStatus("OFFER RECEIVED", Color(0xFFb0aa0c))
+                        // The user specified "status active with neither = nothing", so no else block
+                        else -> null
+                    }
+
                     ListingCard(
                         listing = listing,
                         onNavigateToDetail = onNavigateToDetail,
-                        currentLat = null, // Still dummy for profile's own listings, as distance/walk time is relative to user's *current* location, not their profile
-                        currentLon = null, // Still dummy for profile's own listings
-                        displayMode = displayMode // Pass the actual display mode from DataStore
+                        currentLat = null,
+                        currentLon = null,
+                        displayMode = displayMode,
+                        status = statusForUserListing
                     )
                 }
             }
         }
+        // --- END YOUR LISTINGS SECTION ---
         Spacer(modifier = Modifier.height(16.dp))
     }
 
-    // --- Dialog Code (no functional changes, just ensuring it works with `currentUserName`) ---
+    // --- Dialog Code ---
     if (showChangeNameDialog) {
         AlertDialog(
             onDismissRequest = {
                 showChangeNameDialog = false
-                newName = "" // Clear input on dismiss
-                errorMessage = null // Clear any previous error
+                newName = ""
+                errorMessage = null
             },
             title = { Text("Change Name") },
             text = {
@@ -306,15 +260,11 @@ fun ProfileScreen(
                             return@Button
                         }
                         if (currentUserId.isNotEmpty()) {
-                            // 1. Update name in Firestore
                             db.collection("users").document(currentUserId).update("name", newName)
                                 .addOnSuccessListener {
-                                    // 2. Update the CompositionLocal's MutableState value directly
-                                    currentUserName = newName // This is the key update here
+                                    currentUserName = newName
                                     Log.d("ProfileScreen", "Firestore and LocalUserName updated to: $newName")
-
-                                    // 3. Update Firebase Auth User Profile Display Name
-                                    val currentUser = auth.currentUser // Get the *current* user from auth
+                                    val currentUser = auth.currentUser
                                     if (currentUser != null) {
                                         val profileUpdates = UserProfileChangeRequest.Builder()
                                             .setDisplayName(newName)
@@ -330,7 +280,6 @@ fun ProfileScreen(
                                     } else {
                                         Log.w("ProfileScreen", "User is null when trying to update Firebase Auth profile name.")
                                     }
-
                                     showChangeNameDialog = false
                                     newName = ""
                                     errorMessage = null
@@ -363,7 +312,6 @@ fun ProfileScreen(
         )
     }
 
-    // Password change dialogs remain the same as you provided
     if (showChangePasswordDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -407,7 +355,7 @@ fun ProfileScreen(
                         }
                         else if (newPassword == confirmPassword) {
                             showReAuthDialog = true
-                            errorMessage = null // Clear error before re-auth dialog
+                            errorMessage = null
                         } else {
                             errorMessage = "Passwords do not match."
                         }
@@ -438,7 +386,7 @@ fun ProfileScreen(
             onDismissRequest = {
                 showReAuthDialog = false
                 passwordToConfirm = ""
-                errorMessage = null // Clear any previous error
+                errorMessage = null
             },
             title = { Text("Re-authenticate") },
             text = {
@@ -446,7 +394,7 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = passwordToConfirm,
                         onValueChange = { passwordToConfirm = it },
-                        label = { Text("Enter your current password to confirm") }, // More explicit
+                        label = { Text("Enter your current password to confirm") },
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -460,7 +408,7 @@ fun ProfileScreen(
                 Button(
                     onClick = {
                         val email = user?.email
-                        val currentUser = auth.currentUser // Get the *current* user again for reauth
+                        val currentUser = auth.currentUser
                         if (email != null && passwordToConfirm.isNotBlank() && currentUser != null) {
                             val authCredential =
                                 com.google.firebase.auth.EmailAuthProvider.getCredential(email, passwordToConfirm)
