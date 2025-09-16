@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.firebase.inappmessaging.display)
     implementation(libs.navigation.compose)
     implementation(libs.firebase.firestore.ktx)
+    implementation(libs.firebase.functions.ktx)
     implementation(libs.firebase.storage.ktx)
     implementation(libs.androidx.foundation.android)
     implementation(libs.coroutinesPlayServices)

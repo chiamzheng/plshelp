@@ -74,7 +74,6 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import com.example.plshelp.android.LocalUserId // Assuming LocalUserId is defined in the Android package
 import com.example.plshelp.android.data.DisplayModeRepository
 import com.example.plshelp.android.data.ListingsViewModel
-import androidx.compose.ui.text.style.TextAlign
 import com.google.common.geometry.S2Cell
 import com.google.common.geometry.S2CellId
 import com.google.common.geometry.S2LatLng
@@ -295,33 +294,82 @@ fun ListingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Listings") },
-                actions = {
-                    val currentTimeMillis = System.currentTimeMillis()
-                    val timeDifferenceSeconds = (currentTimeMillis - lastFetchTime) / 1000
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp) // space above Listings
+                    ) {
+                        // Left side: Listings title + refresh/updated stacked
+                        Column(
+                            verticalArrangement = Arrangement.Top, // align to top instead of center
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Listings",
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = 24.sp,      // slightly larger
+                                        lineHeight = 26.sp
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp)) // space between title and refresh
+                                IconButton(
+                                    onClick = { viewModel.refreshListings() },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                                }
+                            }
 
-                    val lastUpdatedText = remember(timeDifferenceSeconds) {
-                        when {
-                            timeDifferenceSeconds < 60 -> "$timeDifferenceSeconds secs ago"
-                            timeDifferenceSeconds < 3600 -> "${timeDifferenceSeconds / 60} mins ago"
-                            else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFetchTime))
+                            val lastFetchTimeValue = lastFetchTime
+                            val currentTimeMillis = System.currentTimeMillis()
+                            val timeDifferenceSeconds = (currentTimeMillis - lastFetchTimeValue) / 1000
+                            val lastUpdatedText = remember(timeDifferenceSeconds) {
+                                when {
+                                    timeDifferenceSeconds < 60 -> "$timeDifferenceSeconds secs ago"
+                                    timeDifferenceSeconds < 3600 -> "${timeDifferenceSeconds / 60} mins ago"
+                                    else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFetchTimeValue))
+                                }
+                            }
+                            Text(
+                                text = "Updated: $lastUpdatedText",
+                                fontSize = 10.sp,
+                                color = Color.Gray,
+                                lineHeight = 14.sp, // reduce line height
+                                modifier = Modifier.padding(top = 2.dp) // minimal padding
+                            )
+                        }
+
+                        // Right side: User points pill (slightly smaller)
+                        val userPoints by viewModel.userPoints.collectAsState()
+                        if (userPoints != null) {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = Color(0xFF51367a),
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "Your Points: ${userPoints ?: 0}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
-
-                    if (lastFetchTime > 0) {
-                        Text(
-                            text = "Updated: $lastUpdatedText",
-                            fontSize = 10.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
-
-                    IconButton(onClick = { viewModel.refreshListings() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                    }
-                }
+                },
+                actions = { }
             )
+
+
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
@@ -448,7 +496,8 @@ fun ListingsScreen(
                                 ) {
                                     Text("Filter by",
                                         fontSize = 12.sp,
-                                        lineHeight = 12.sp
+                                        lineHeight = 12.sp,
+                                        color = Color.White
                                     )
                                 }
                             }
@@ -848,7 +897,7 @@ fun ListingCard(
             ) {
                 // Conditional reward text
                 val rewardText = if (listing.price.toFloatOrNull() != null) {
-                    "Reward: $${listing.price}"
+                    "Reward: ${listing.price}pts"
                 } else {
                     "Reward: ${listing.price}"
                 }

@@ -60,6 +60,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 
+
 // Firebase Storage imports
 import com.google.firebase.storage.FirebaseStorage
 import com.mapbox.geojson.Polygon
@@ -68,6 +69,13 @@ import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotationSt
 import com.mapbox.maps.extension.compose.annotation.generated.PolygonAnnotation
 import java.util.UUID
 
+// import to get current point balance
+import com.example.plshelp.android.data.ListingsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.ktx.functions
+import com.google.firebase.ktx.Firebase
 
 // Data class for Location Selection
 data class LocationSelection(
@@ -86,15 +94,17 @@ data class CategorySelection(
     val selectedCategories: MutableSet<String>
 )
 
-// Enum for Price Option - Make sure this is accessible by your Composable
+// Enum for Price Option
 enum class PriceOption {
-    Money, Free, Other
+    Points, Free, Other
 }
 
 // --- Character Limit Constants ---
 const val MAX_TITLE_CHARS = 30
-const val MAX_PRICE_CHARS = 10 // Applies to both Money value string and Other reward string
+const val MAX_PRICE_CHARS = 10 // Applies to both Points value string and Other reward string
 
+// Define the fixed cost for creating a listing
+const val POSTING_COST = 50L
 
 @Composable
 fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
@@ -146,8 +156,8 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     // --- END LOCATION SELECTION STATES ---
 
     // --- PRICE RELATED STATES ---
-    var selectedPriceOption by rememberSaveable { mutableStateOf(PriceOption.Money) }
-    var moneyPriceValue by rememberSaveable { mutableStateOf("") } // For numerical price input
+    var selectedPriceOption by rememberSaveable { mutableStateOf(PriceOption.Points) }
+    var PointsPriceValue by rememberSaveable { mutableStateOf("") } // For numerical price input
     var otherRewardValue by rememberSaveable { mutableStateOf("") } // For 'Other' text input
     // --- END PRICE RELATED STATES ---
 
@@ -162,6 +172,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     var deliveryLocationError by rememberSaveable { mutableStateOf(false) }
 
     val firestore = FirebaseFirestore.getInstance()
+    val functions = FirebaseFunctions.getInstance("us-central1") // Use your region
 
     // Predefined categories.
     val availableCategories = remember {
@@ -197,56 +208,60 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         if (descriptionError) allInputsValid = false
 
         // Price validation logic
-        var localPriceError = false // Used for the price field's individual error state
-        val finalPrice: String // This will hold the string to be saved to Firestore
+        var localPriceError = false
+        val finalPrice: String
+
+        var userPriceAsLong = 0L
 
         when (selectedPriceOption) {
-            PriceOption.Free -> {
-                finalPrice = "Free"
-                // No validation errors for "Free"
-            }
-            PriceOption.Money -> {
-                // Corrected to make the field required
-                if (moneyPriceValue.isBlank()) {
+            PriceOption.Points -> {
+                if (PointsPriceValue.isBlank()) {
                     localPriceError = true
                     allInputsValid = false
                     finalPrice = ""
-                } else if (moneyPriceValue.length > MAX_PRICE_CHARS) {
+                } else if (PointsPriceValue.length > MAX_PRICE_CHARS) {
                     localPriceError = true
                     allInputsValid = false
-                    finalPrice = "" // Initialize even in error case
-                } else if (moneyPriceValue.toFloatOrNull() == null) {
+                    finalPrice = ""
+                } else if (PointsPriceValue.toFloatOrNull() == null) {
                     localPriceError = true
                     allInputsValid = false
-                    finalPrice = "" // Initialize even in error case
+                    finalPrice = ""
                 } else {
-                    finalPrice = moneyPriceValue // Valid number string
+                    finalPrice = PointsPriceValue
+                    userPriceAsLong = PointsPriceValue.toLongOrNull() ?: 0L
+
                 }
             }
             PriceOption.Other -> {
-                // Corrected to make the field required
                 if (otherRewardValue.isBlank()) {
                     localPriceError = true
                     allInputsValid = false
-                    finalPrice = "" // Initialize even in error case
+                    finalPrice = ""
                 } else if (otherRewardValue.length > MAX_PRICE_CHARS) {
                     localPriceError = true
                     allInputsValid = false
-                    finalPrice = "" // Initialize even in error case
+                    finalPrice = ""
                 } else {
-                    finalPrice = otherRewardValue // Custom reward text
+                    finalPrice = otherRewardValue
+                    userPriceAsLong = 0L
                 }
             }
+            PriceOption.Free -> {
+                finalPrice = "Free"
+                userPriceAsLong = 0L
+            }
         }
-        priceInputError = localPriceError // Update state for UI feedback on the price/reward field
+        priceInputError = localPriceError
 
+        val totalCost = POSTING_COST + userPriceAsLong
+        // --- END CORRECTED LOGIC FOR TOTAL COST ---
 
         // Radius validation
-        // Conditionally validate radius only if "Lost & Found" is selected
         radiusError = if (isLostAndFoundSelected.value) {
-            radius.isBlank() // Check if a radius was selected
+            radius.isBlank()
         } else {
-            false // No error if category is not "Lost & Found"
+            false
         }
         if (radiusError) allInputsValid = false
 
@@ -262,18 +277,25 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         deliveryLocationError = if (isDeliverySelected.value) deliveryLocationSelection.coordinates == null else false
         if (deliveryLocationError) allInputsValid = false
 
-        // User ID check (Crucial for ownerID)
+        // User ID check
         if (currentUserId.isEmpty()) {
             allInputsValid = false
-            errorMessage = "User not logged in. Please log in to create a request." // Specific error for login
+            errorMessage = "User not logged in. Please log in to create a request."
         }
 
         // --- FINAL SUBMISSION CHECK ---
         if (allInputsValid) {
-            isCreating = true // Indicate that creation is in progress
+            isCreating = true
             scope.launch {
                 try {
-                    // --- Image Upload Logic ---
+                    // Step 1: Call the Cloud Function to deduct points.
+                    val deductionResult = functions.getHttpsCallable("createListing")
+                        .call(hashMapOf("totalCost" to totalCost))
+                        .await()
+
+                    // If we reach this line, points were deducted successfully.
+                    // Step 2: Proceed with creating the Firestore listing.
+
                     val imageUrl = if (imageUri != null) {
                         try {
                             uploadImageToFirebase(imageUri!!, currentUserId)
@@ -281,31 +303,29 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                             errorMessage = "Failed to upload image: ${e.localizedMessage}"
                             Log.e("CreateRequestScreen", "Image upload failed", e)
                             isCreating = false
-                            return@launch // Still keep return here, as image upload is critical pre-requisite
+                            return@launch
                         }
                     } else {
                         null
                     }
-                    // --- End Image Upload Logic ---
 
                     val primaryCoordinates = locationSelection.coordinates
                     val deliveryCoordinates = if (isDeliverySelected.value) deliveryLocationSelection.coordinates else null
 
-                    // Final check for coordinates just before Firestore operation
                     if (primaryCoordinates != null && (!isDeliverySelected.value || deliveryCoordinates != null)) {
                         val newListing = hashMapOf(
                             "title" to title,
                             "description" to description,
-                            "price" to finalPrice, // Use the determined finalPrice
+                            "price" to finalPrice,
                             "category" to categorySelection.selectedCategories.toList(),
                             "coord" to primaryCoordinates,
                             "deliveryCoord" to deliveryCoordinates,
-                            "radius" to if (isLostAndFoundSelected.value) radius.toLong() else null, // Conditionally add radius
+                            "radius" to if (isLostAndFoundSelected.value) radius.toLong() else null,
                             "ownerID" to currentUserId,
                             "ownerName" to currentUserName,
                             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                             "status" to "active",
-                            "imageUrl" to imageUrl // Add the uploaded image URL here
+                            "imageUrl" to imageUrl
                         )
 
                         firestore.collection("listings").add(newListing).await()
@@ -313,17 +333,16 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         // Reset states after successful creation
                         title = ""
                         description = ""
-                        moneyPriceValue = ""
+                        PointsPriceValue = ""
                         otherRewardValue = ""
-                        selectedPriceOption = PriceOption.Money
+                        selectedPriceOption = PriceOption.Points
                         categorySelection = CategorySelection(mutableSetOf())
                         radius = ""
                         locationSelection = LocationSelection(LocationType.NO_LOCATION, null)
                         deliveryLocationSelection = LocationSelection(LocationType.NO_LOCATION, null)
                         imageUri = null
-                        requestCreated = true // Set success flag
-                        errorMessage = null // Clear any general error message
-                        // Reset all individual error flags
+                        requestCreated = true
+                        errorMessage = null
                         titleError = false
                         descriptionError = false
                         priceInputError = false
@@ -333,8 +352,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         showCategoryError = false
 
                     } else {
-                        // This case should ideally not be hit if allInputsValid was true,
-                        // but good for safety.
                         Log.e("CreateRequestScreen", "Missing coordinates after validation!")
                         errorMessage = "Internal error: Missing coordinates despite validation."
                     }
@@ -342,12 +359,10 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     errorMessage = "Failed to create request: ${e.localizedMessage}"
                     Log.e("CreateRequestScreen", "Error creating request: ${e.localizedMessage}", e)
                 } finally {
-                    isCreating = false // End creation progress
+                    isCreating = false
                 }
             }
         } else {
-            // If allInputsValid is false and a specific errorMessage wasn't already set
-            // (e.g., by the user ID check), set a general error message.
             if (errorMessage == null) {
                 errorMessage = "Please correct the highlighted errors."
             }
@@ -372,17 +387,17 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
         OutlinedTextField(
             value = title,
             onValueChange = { newValue ->
-                title = newValue // Allow typing beyond limit for visual feedback
+                title = newValue
             },
             label = { Text("Title") },
             modifier = Modifier.fillMaxWidth(),
-            isError = titleError || title.length > MAX_TITLE_CHARS, // Combined error state
+            isError = titleError || title.length > MAX_TITLE_CHARS,
             colors = TextFieldDefaults.colors(
                 focusedIndicatorColor = if (titleError || title.length > MAX_TITLE_CHARS) Color.Red else MaterialTheme.colorScheme.primary,
                 unfocusedIndicatorColor = if (titleError || title.length > MAX_TITLE_CHARS) Color.Red else MaterialTheme.colorScheme.onBackground,
                 errorIndicatorColor = Color.Red
             ),
-            singleLine = true // No wrapping
+            singleLine = true
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -404,8 +419,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 color = if (title.length > MAX_TITLE_CHARS) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Spacer(modifier = Modifier.height(16.dp)) // Add spacing after title field and its info
-
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = description,
@@ -421,22 +435,20 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 unfocusedIndicatorColor = if (descriptionError) Color.Red else MaterialTheme.colorScheme.onBackground,
                 errorIndicatorColor = Color.Red
             ),
-            minLines = 3 // Allow multiple lines for description
+            minLines = 3
         )
         if (descriptionError) {
             Text(
                 "Description is required",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth() // Add this modifier
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        Spacer(modifier = Modifier.height(16.dp)) // Add spacing after description
+        Spacer(modifier = Modifier.height(16.dp))
 
         // --- PRICE/REWARD INPUT SECTION ---
-        // Price Option Selection
         Text("Reward", style = MaterialTheme.typography.titleMedium)
-        // Price Option Selection - A segmented control pill
         val pillCornerRadius = 8.dp
         val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
         val selectedBackgroundColor = MaterialTheme.colorScheme.primary
@@ -454,15 +466,14 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 val backgroundColor = if (isSelected) selectedBackgroundColor else unselectedBackgroundColor
                 val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
 
-                // We use a Box as a segment
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .background(backgroundColor)
                         .clickable {
                             selectedPriceOption = option
-                            priceInputError = false // Clear general price error when switching
-                            if (option != PriceOption.Money) moneyPriceValue = ""
+                            priceInputError = false
+                            if (option != PriceOption.Points) PointsPriceValue = ""
                             if (option != PriceOption.Other) otherRewardValue = ""
                         }
                         .padding(vertical = 12.dp),
@@ -471,7 +482,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     Text(text = option.name, color = textColor)
                 }
 
-                // Add a separator between segments, but not after the last one
                 if (index < PriceOption.entries.lastIndex) {
                     Divider(
                         color = borderColor,
@@ -485,24 +495,22 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
 
         Spacer(modifier = Modifier.height(0.dp))
 
-        // Conditional Price Input Field
         when (selectedPriceOption) {
-            PriceOption.Money -> {
+            PriceOption.Points -> {
                 OutlinedTextField(
-                    value = moneyPriceValue,
+                    value = PointsPriceValue,
                     onValueChange = { newValue ->
-                        // Only allow numbers (and optionally a single decimal point)
                         if (newValue.matches(Regex("^\\d*\\.?\\d*\$"))) {
-                            moneyPriceValue = newValue // Allow typing beyond limit for visual feedback
+                            PointsPriceValue = newValue
                         }
                     },
-                    label = { Text("Price ($)") },
+                    label = { Text("Point Value") },
                     modifier = Modifier.fillMaxWidth(),
-                    isError = priceInputError || moneyPriceValue.length > MAX_PRICE_CHARS, // Combined error state
+                    isError = priceInputError || PointsPriceValue.length > MAX_PRICE_CHARS,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = if (priceInputError || moneyPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = if (priceInputError || moneyPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.onBackground,
+                        focusedIndicatorColor = if (priceInputError || PointsPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.primary,
+                        unfocusedIndicatorColor = if (priceInputError || PointsPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.onBackground,
                         errorIndicatorColor = Color.Red
                     ),
                     singleLine = true
@@ -512,20 +520,19 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Corrected to show a single, clear message
-                    if (priceInputError && moneyPriceValue.isBlank()) {
+                    if (priceInputError && PointsPriceValue.isBlank()) {
                         Text(
-                            "Price is required",
+                            "Points is required",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
-                    } else if (priceInputError) { // For invalid format or other errors
+                    } else if (priceInputError) {
                         Text(
                             "Invalid number format or length.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
-                    } else if (moneyPriceValue.length > MAX_PRICE_CHARS) {
+                    } else if (PointsPriceValue.length > MAX_PRICE_CHARS) {
                         Text(
                             "Exceeds ${MAX_PRICE_CHARS} character limit",
                             color = Color.Red,
@@ -533,9 +540,9 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                         )
                     }
                     Text(
-                        text = "${moneyPriceValue.length}/${MAX_PRICE_CHARS}",
+                        text = "${PointsPriceValue.length}/${MAX_PRICE_CHARS}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (moneyPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (PointsPriceValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -543,11 +550,11 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 OutlinedTextField(
                     value = otherRewardValue,
                     onValueChange = { newValue ->
-                        otherRewardValue = newValue // Allow typing beyond limit for visual feedback
+                        otherRewardValue = newValue
                     },
                     label = { Text("Describe Reward") },
                     modifier = Modifier.fillMaxWidth(),
-                    isError = priceInputError || otherRewardValue.length > MAX_PRICE_CHARS, // Combined error state
+                    isError = priceInputError || otherRewardValue.length > MAX_PRICE_CHARS,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = if (priceInputError || otherRewardValue.length > MAX_PRICE_CHARS) Color.Red else MaterialTheme.colorScheme.primary,
@@ -561,7 +568,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Corrected to show a single, clear message
                     if (priceInputError && otherRewardValue.isBlank()) {
                         Text(
                             "Reward description is required",
@@ -583,7 +589,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 }
             }
             PriceOption.Free -> {
-                // No input field needed, display a confirmation text
                 Text(
                     text = "This listing will be marked as 'Free'.",
                     style = MaterialTheme.typography.bodyLarge,
@@ -592,9 +597,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 )
             }
         }
-        Spacer(modifier = Modifier.height(8.dp)) // Add spacing after price/reward section
-        // --- END PRICE/REWARD INPUT SECTION ---
-
+        Spacer(modifier = Modifier.height(8.dp))
 
         // --- IMAGE SELECTION UI ---
         Spacer(modifier = Modifier.height(16.dp))
@@ -611,8 +614,7 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium
             )
         }
-        Spacer(modifier = Modifier.height(16.dp)) // Spacing after image selection
-        // --- END IMAGE SELECTION UI ---
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text("Category", style = MaterialTheme.typography.titleMedium)
         if (showCategoryError) {
@@ -692,7 +694,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             Text("Search Radius", style = MaterialTheme.typography.titleMedium)
 
-            // Segmented control for radius
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -733,7 +734,12 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
                 Text("Radius is required for Lost & Found listings", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
-        // --- End Conditional Radius Selector ---
+        val auth = FirebaseAuth.getInstance()
+        Log.d("AuthCheck", "User: ${auth.currentUser?.uid}")
+
+        auth.currentUser?.getIdToken(false)?.addOnSuccessListener {
+            Log.d("AuthCheck", "Token: ${it.token?.take(15)}...")
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = createListing, enabled = !isCreating) {
@@ -773,7 +779,6 @@ fun CreateRequestScreen(onNavigateToListings: () -> Unit) {
     }
 }
 
-// Add this function outside of the CreateRequestScreen composable
 suspend fun uploadImageToFirebase(imageUri: String, userId: String): String {
     val storage = FirebaseStorage.getInstance()
     val storageRef = storage.reference

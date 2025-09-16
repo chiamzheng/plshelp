@@ -41,6 +41,7 @@ play-services-location = { module = "com.google.android.gms:play-services-locati
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-functions-ktx = { module = "com.google.firebase:firebase-functions-ktx" }
 firebase-inappmessaging = { group = "com.google.firebase", name = "firebase-inappmessaging" }
 firebase-inappmessaging-display = { group = "com.google.firebase", name = "firebase-inappmessaging-display" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }

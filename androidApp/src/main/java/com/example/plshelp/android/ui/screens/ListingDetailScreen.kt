@@ -233,7 +233,7 @@ fun ListingDetailScreen(
                         ) {
                             // Conditional reward text
                             val rewardText = if (listing.price.toFloatOrNull() != null) {
-                                "Reward: $${listing.price}"
+                                "Reward: ${listing.price} points"
                             } else {
                                 "Reward: ${listing.price}"
                             }
@@ -241,7 +241,7 @@ fun ListingDetailScreen(
                                 text = rewardText,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.primary
                             )
                             //end conditional reward text
 
@@ -252,44 +252,6 @@ fun ListingDetailScreen(
                                 color = Color.Gray
                             )
                         }
-
-                        if (isDeliveryListing && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
-                            Text(
-                                text = "Pickup Location:",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                text = "Delivery Location:",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Lat: %.4f, Lon: %.4f".format(listing.deliveryCoord[0], listing.deliveryCoord[1]),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray,
-                                fontSize = 10.sp
-                            )
-                        } else {
-                            Text(
-                                text = "Location:",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Lat: %.4f, Lon: %.4f".format(listing.coord[0], listing.coord[1]),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color.DarkGray,
-                                fontSize = 10.sp
-                            )
-                        }
-
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()

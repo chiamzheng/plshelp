@@ -14,6 +14,8 @@ import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.tooling.preview.Preview
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
 
 @Composable
 fun RegistrationScreen(
@@ -29,7 +31,7 @@ fun RegistrationScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var registrationSuccess by remember { mutableStateOf(false) }
     val auth = FirebaseAuth.getInstance()
-    val db = FirebaseFirestore.getInstance()
+    val db = Firebase.firestore
     val scope = rememberCoroutineScope()
 
     // Update errorMessage when registerErrorMessage changes
@@ -85,6 +87,7 @@ fun RegistrationScreen(
                                 if (user != null) {
                                     val userData = hashMapOf(
                                         "name" to name,
+                                        "points" to 500L
                                     )
                                     db.collection("users").document(user.uid)
                                         .set(userData)
@@ -138,13 +141,5 @@ fun RegistrationScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text("Registration Successful", color = MaterialTheme.colorScheme.primary)
         }
-    }
-}
-
-@Preview
-@Composable
-fun RegistrationScreenPreview() {
-    MyApplicationTheme {
-        RegistrationScreen(onRegisterSuccess = {}, onRegisterFailure = {}, onRegister = { _, _ -> }, onBackToLogin = {}, registerErrorMessage = null)
     }
 }
