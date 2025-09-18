@@ -134,7 +134,7 @@ exports.completeListing = onCall(async (request) => {
 
     const pointsToGive =
       listingData.price !== "Free" && listingData.price !== "Other"
-        ? parseInt(listingData.price, 10) * 100
+        ? parseInt(listingData.price, 10)
         : 0;
 
     const currentPoints = fulfillerDoc.data().points || 0;

@@ -8,12 +8,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import Listing // Assuming Listing is in the root of your 'android' module, adjust if different
+import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.FieldValue
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import com.google.firebase.Timestamp
+import com.google.firebase.functions.functions
 
 class ListingDetailViewModel(
     private val listingId: String,
@@ -295,37 +297,24 @@ class ListingDetailViewModel(
     }
 
     fun markRequestAsCompleted(currentUserId: String?) {
-        if (listing == null) {
-            errorMessage = "Listing data not available."
-            return
-        }
-        if (isLoading) {
-            Log.d("ListingDetailViewModel", "Operation in progress, cannot mark as completed.")
-            return
-        }
-        if (currentUserId == null || listing!!.ownerID != currentUserId) {
-            errorMessage = "Only the owner can mark this request as completed."
-            return
-        }
-        if (listing!!.status == "fulfilled") {
-            errorMessage = "This request is already marked as completed."
-            return
-        }
-        if (listing!!.fulfilledBy.isNullOrEmpty()) {
-            errorMessage = "Please select a fulfiller before marking as completed."
+        val fulfillerId = listing?.fulfilledBy?.firstOrNull()
+        if (listing == null || currentUserId == null || listing!!.ownerID != currentUserId || fulfillerId == null) {
+            errorMessage = "Cannot mark as completed."
             return
         }
 
         isLoading = true
         viewModelScope.launch {
             try {
-                firestore.collection("listings").document(listingId)
-                    .update("status", "fulfilled")
+                // Call Cloud Function
+                Firebase.functions
+                    .getHttpsCallable("completeListing")
+                    .call(mapOf("listingId" to listingId, "fulfillerId" to fulfillerId))
                     .await()
                 errorMessage = null
-                Log.d("ListingDetailViewModel", "Request $listingId marked as completed.")
+                Log.d("ListingDetailViewModel", "Request $listingId marked as completed via Cloud Function.")
             } catch (e: Exception) {
-                errorMessage = "Failed to mark request as completed: ${e.localizedMessage}"
+                errorMessage = "Failed to mark as completed: ${e.localizedMessage}"
                 Log.e("ListingDetailViewModel", "Error marking request $listingId as completed", e)
             } finally {
                 isLoading = false
@@ -337,14 +326,14 @@ class ListingDetailViewModel(
         viewModelScope.launch {
             try {
                 val userDoc = firestore.collection("users").document(uid).get().await()
-                val name = userDoc.getString("name") ?: "Unknown User"
-                onNameFetched(name)
+                onNameFetched(userDoc.getString("name") ?: "Unknown User")
             } catch (e: Exception) {
                 Log.e("ListingDetailViewModel", "Error fetching user name for $uid: ${e.message}", e)
                 onNameFetched("Unknown User")
             }
         }
     }
+
     override fun onCleared() {
         super.onCleared()
         // No explicit listener removal here as addSnapshotListener is active and typically tied to ViewModel lifecycle
