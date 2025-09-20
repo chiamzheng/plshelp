@@ -154,33 +154,15 @@ fun ListingDetailScreen(
                 val isFulfilledByCurrentUser = listing.fulfilledBy?.contains(currentUserId) == true
                 val isRequestCompleted = listing.status == "fulfilled"
 
-                // --- Resolve names for acceptedBy & fulfilledBy ---
-                var acceptedByNames by remember { mutableStateOf<List<String>>(emptyList()) }
-                var fulfilledByNames by remember { mutableStateOf<List<String>>(emptyList()) }
-
-                LaunchedEffect(listing.acceptedBy) {
-                    val names = mutableListOf<String>()
-                    listing.acceptedBy.forEach { uid ->
-                        viewModel.getUserName(uid) { name -> names.add(name) }
-                    }
-                    acceptedByNames = names
-                }
-                LaunchedEffect(listing.fulfilledBy) {
-                    val names = mutableListOf<String>()
-                    listing.fulfilledBy?.forEach { uid ->
-                        viewModel.getUserName(uid) { name -> names.add(name) }
-                    }
-                    fulfilledByNames = names
-                }
-
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    // --- Scrollable Content Section ---
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .verticalScroll(scrollState, enabled = parentScrollEnabled)
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 16.dp,),
                         horizontalAlignment = Alignment.Start,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -198,30 +180,41 @@ fun ListingDetailScreen(
                         // --- Image Display ---
                         listing.imageUrl?.let { imageUrl ->
                             Spacer(modifier = Modifier.height(16.dp))
+
+                            // Wrapped in a Card for a defined background and subtle elevation
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 300.dp),
-                                shape = RoundedCornerShape(8.dp)
+                                    .heightIn(max = 300.dp), // Maintain flexible height
+                                shape = RoundedCornerShape(8.dp) // Match the image's rounded corners
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0x38393b)),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxSize() // Make Box fill the Card
+                                        .background(Color(0x38393b)), // Grey background for the area behind the image
+                                    contentAlignment = Alignment.Center // Center the image within the grey box
                                 ) {
                                     AsyncImage(
                                         model = imageUrl,
                                         contentDescription = "Listing Image",
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Fit
+                                            .fillMaxWidth() // Allow image to take full width of its container
+                                            // No fixed height here, ContentScale.Fit will determine height within max height of parent
+                                            .clip(RoundedCornerShape(8.dp)), // Keep image corners rounded
+                                        contentScale = ContentScale.Fit, // Ensures entire image is visible, showing gaps on sides if needed
+                                        onLoading = { Log.d("AsyncImage", "Loading started for: $imageUrl") },
+                                        onSuccess = { Log.d("AsyncImage", "Loading SUCCESS for: $imageUrl") },
+                                        onError = { error ->
+                                            Log.e("AsyncImage", "Loading FAILED for: $imageUrl. Error: ${error.result.throwable.localizedMessage}", error.result.throwable)
+                                        }
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
+                        } ?: run {
+                            Log.w("ListingDetailScreen", "listing.imgURL is null or empty. No image will be displayed for this listing.")
                         }
+// --- End Image Display ---
 
                         Text(
                             text = "Description:",
@@ -238,6 +231,7 @@ fun ListingDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            // Conditional reward text
                             val rewardText = if (listing.price.toFloatOrNull() != null) {
                                 "Reward: ${listing.price} points"
                             } else {
@@ -249,6 +243,7 @@ fun ListingDetailScreen(
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                            //end conditional reward text
 
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
@@ -257,8 +252,6 @@ fun ListingDetailScreen(
                                 color = Color.Gray
                             )
                         }
-
-                        // --- Mapbox Map section remains unchanged ---
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -279,7 +272,103 @@ fun ListingDetailScreen(
                                     },
                                 mapViewportState = mapViewportState,
                                 mapState = mapState,
-                                content = { /* Camera positioning & annotations unchanged */ }
+                                content = {
+                                    LaunchedEffect(listing.coord, listing.deliveryCoord) {
+                                        val pickupPoint = if (listing.coord.size == 2)
+                                            Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                        else null
+
+                                        val isDeliveryListingEffect = listing.category.contains("Delivery", ignoreCase = true)
+                                        val deliveryPoint = if (isDeliveryListingEffect) {
+                                            val coords = listing.deliveryCoord
+                                            if (coords != null && coords.size == 2) {
+                                                Point.fromLngLat(coords[1], coords[0])
+                                            } else null
+                                        } else null
+
+                                        val cameraOptions = when {
+                                            pickupPoint != null && deliveryPoint != null -> {
+                                                val midLat = (pickupPoint.latitude() + deliveryPoint.latitude()) / 2
+                                                val midLon = (pickupPoint.longitude() + deliveryPoint.longitude()) / 2
+
+                                                val latDiff = abs(pickupPoint.latitude() - deliveryPoint.latitude())
+                                                val lonDiff = abs(pickupPoint.longitude() - deliveryPoint.longitude())
+
+                                                val maxDiff = max(latDiff, lonDiff)
+
+                                                val zoom = when {
+                                                    maxDiff < 0.01 -> 14.0
+                                                    maxDiff < 0.05 -> 12.0
+                                                    maxDiff < 0.1 -> 10.5
+                                                    maxDiff < 0.5 -> 9.5
+                                                    else -> 8.5
+                                                }
+
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(midLon, midLat))
+                                                    .zoom(zoom)
+                                                    .build()
+                                            }
+
+                                            pickupPoint != null -> {
+                                                CameraOptions.Builder()
+                                                    .center(pickupPoint)
+                                                    .zoom(14.0)
+                                                    .build()
+                                            }
+
+                                            else -> {
+                                                CameraOptions.Builder()
+                                                    .center(Point.fromLngLat(103.8198, 1.3521)) // Default to Singapore
+                                                    .zoom(10.0)
+                                                    .build()
+                                            }
+                                        }
+
+                                        mapViewportState.flyTo(cameraOptions)
+                                    }
+
+                                    // --- Conditionally display radius circle for Lost & Found listings ---
+                                    val isLostAndFound = listing.category.contains("Lost & Found", ignoreCase = true)
+                                    if (isLostAndFound && listing.radius > 0 && listing.coord.size == 2) {
+                                        val centerPoint = Point.fromLngLat(listing.coord[1], listing.coord[0])
+                                        val circlePolygon = createCirclePolygon(centerPoint, listing.radius.toDouble())
+                                        PolygonAnnotation(
+                                            points = circlePolygon.coordinates()
+                                        ) {
+                                            fillColor = Color.Blue
+                                            fillOpacity = 0.3
+                                        }
+                                    }
+                                    // --- End radius circle logic ---
+
+
+                                    if (listing.coord.isNotEmpty() && listing.coord.size == 2) {
+                                        PointAnnotation(
+                                            point = Point.fromLngLat(listing.coord[1], listing.coord[0]),
+                                        ) {
+                                            iconImage = markerIconId
+                                            textField = if (listing.category.contains("Delivery", ignoreCase = true)) "Pickup" else "Location"
+                                            textSize = 12.0
+                                            textHaloWidth = 1.0
+                                            textAnchor = TextAnchor.TOP
+                                            textOffset = listOf(0.0, -1.5)
+                                        }
+                                    }
+
+                                    if (listing.category.contains("Delivery", ignoreCase = true) && listing.deliveryCoord != null && listing.deliveryCoord.size == 2) {
+                                        PointAnnotation(
+                                            point = Point.fromLngLat(listing.deliveryCoord[1], listing.deliveryCoord[0]),
+                                        ) {
+                                            iconImage = markerIconId
+                                            textField = "Delivery"
+                                            textSize = 12.0
+                                            textHaloWidth = 1.0
+                                            textAnchor = TextAnchor.TOP
+                                            textOffset = listOf(0.0, -1.5)
+                                        }
+                                    }
+                                }
                             )
                         }
 
@@ -296,12 +385,13 @@ fun ListingDetailScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
                     }
+                    // --- End of Scrollable Content Section ---
 
-                    // --- Bottom Buttons Section ---
+                    // --- Static Buttons Section (at the bottom) ---
                     Surface(
                         tonalElevation = 4.dp,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 1f),
-                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 1f), // Translucent background
+                        shape = RoundedCornerShape(12.dp), // Slightly curved border
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 8.dp, top = 8.dp, start = 16.dp, end = 16.dp)
@@ -322,7 +412,7 @@ fun ListingDetailScreen(
                                             style = MaterialTheme.typography.labelLarge
                                         )
                                         if (isFulfilledBySomeone) {
-                                            val fulfillers = fulfilledByNames.joinToString(", ")
+                                            val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
                                             Text(
                                                 "By: $fulfillers",
                                                 style = MaterialTheme.typography.labelSmall,
@@ -334,8 +424,8 @@ fun ListingDetailScreen(
                                                     val participants = mutableListOf(currentUserId).apply {
                                                         listing.fulfilledBy?.let { addAll(it) }
                                                     }.distinct().sorted()
-                                                    val chatTypeToNavigate =
-                                                        if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
+
+                                                    val chatTypeToNavigate = if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
                                                     onNavigateToChat(participants, listingId, chatTypeToNavigate)
                                                 },
                                                 enabled = !isLoading
@@ -355,7 +445,7 @@ fun ListingDetailScreen(
                                         Spacer(modifier = Modifier.height(8.dp))
 
                                         if (isFulfilledBySomeone) {
-                                            val fulfillers = fulfilledByNames.joinToString(", ")
+                                            val fulfillers = listing.fulfilledBy?.joinToString(", ") ?: "Unknown"
                                             Text(
                                                 "Assigned to: $fulfillers",
                                                 style = MaterialTheme.typography.labelLarge,
@@ -366,10 +456,7 @@ fun ListingDetailScreen(
                                                 Button(
                                                     onClick = { showMarkCompletedConfirmationDialog = true },
                                                     enabled = !isLoading,
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF6c2694),
-                                                        contentColor = MaterialTheme.colorScheme.primary
-                                                    )
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6c2694), contentColor = MaterialTheme.colorScheme.primary)
                                                 ) {
                                                     Text("Mark as Completed")
                                                 }
@@ -378,8 +465,8 @@ fun ListingDetailScreen(
                                                         val participants = mutableListOf(currentUserId).apply {
                                                             listing.fulfilledBy?.let { addAll(it) }
                                                         }.distinct().sorted()
-                                                        val chatTypeToNavigate =
-                                                            if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
+
+                                                        val chatTypeToNavigate = if (participants.size > 2) ChatType.GROUP else ChatType.ONE_ON_ONE
                                                         onNavigateToChat(participants, listingId, chatTypeToNavigate)
                                                     },
                                                     enabled = !isLoading
@@ -390,7 +477,7 @@ fun ListingDetailScreen(
                                         }
                                     }
                                 }
-                            } else { // Not owner
+                            } else { // Not the owner
                                 if (isRequestCompleted) {
                                     Text(
                                         "Request Fulfilled",
@@ -410,8 +497,8 @@ fun ListingDetailScreen(
                                             Text("Chat with Owner")
                                         }
                                     }
-                                } else { // Active request
-                                    if (hasAccepted) {
+                                } else { // Request is active (status == "active")
+                                    if (hasAccepted) { // User has offered to help
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(
                                                 if (isFulfilledByCurrentUser) "You are selected!" else "Help Offered",
@@ -424,9 +511,7 @@ fun ListingDetailScreen(
                                                 Button(
                                                     onClick = { showUnacceptConfirmationDialog = true },
                                                     enabled = !isLoading && !isFulfilledByCurrentUser,
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = MaterialTheme.colorScheme.error
-                                                    )
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                                                 ) {
                                                     Text("Withdraw Offer")
                                                 }
@@ -442,8 +527,9 @@ fun ListingDetailScreen(
                                                 }
                                             }
                                         }
-                                    } else { // User has not offered
+                                    } else { // User has NOT offered to help
                                         if (!isFulfilledBySomeone) {
+                                            // Modified to show both "Offer to Help" and "Chat with Owner"
                                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 Button(
                                                     onClick = { viewModel.acceptRequest(currentUserId) },
@@ -474,6 +560,7 @@ fun ListingDetailScreen(
                             }
                         }
                     }
+                    // --- End of Static Buttons Section ---
                 }
             }
         }
@@ -544,7 +631,6 @@ fun ListingDetailScreen(
         )
     }
 }
-
 
 private fun isRequestCompleted(status: String?): Boolean {
     return status == "fulfilled"

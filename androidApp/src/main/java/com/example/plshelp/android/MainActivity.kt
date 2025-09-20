@@ -22,12 +22,14 @@ import com.example.plshelp.android.data.LocationService
 import com.example.plshelp.android.ui.navigation.BottomNavItem
 import com.example.plshelp.android.ui.screens.CreateRequestScreen
 import com.example.plshelp.android.ui.screens.ForgotPasswordScreen
-import com.example.plshelp.android.ui.screens.ListingDetailScreen // Keep this import
+import com.example.plshelp.android.ui.screens.ListingDetailScreen
 import com.example.plshelp.android.ui.screens.ListingsScreen
 import com.example.plshelp.android.ui.screens.LoginScreen
 import com.example.plshelp.android.ui.screens.MyApplicationTheme
 import com.example.plshelp.android.ui.screens.ProfileScreen
 import com.example.plshelp.android.ui.screens.RegistrationScreen
+import com.example.plshelp.android.ui.screens.RedeemScreen
+import com.example.plshelp.android.ui.screens.TransactionHistoryScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import android.util.Log
@@ -35,7 +37,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import Listing // Correct import for your Listing data class
+import Listing
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,13 +47,10 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import com.example.plshelp.android.ui.screens.AcceptedRequestsScreen
 import com.google.firebase.auth.FirebaseUser
-import com.example.plshelp.android.ui.screens.ChatScreen // Import the ChatScreen
-import com.example.plshelp.android.data.ChatType // Import the ChatType enum
+import com.example.plshelp.android.ui.screens.ChatScreen
+import com.example.plshelp.android.data.ChatType
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken // Required for Gson to deserialize List<String>
-// No TopAppBar icons needed here anymore
-// import androidx.compose.material.icons.automirrored.filled.ArrowBack
-
+import com.google.gson.reflect.TypeToken
 
 class MainActivity : ComponentActivity() {
 
@@ -65,7 +64,7 @@ class MainActivity : ComponentActivity() {
         }
 
     private lateinit var auth: FirebaseAuth
-    private lateinit var var_db: FirebaseFirestore // Renamed to avoid confusion
+    private lateinit var var_db: FirebaseFirestore
 
     private var _firebaseUser by mutableStateOf<FirebaseUser?>(null)
 
@@ -79,13 +78,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate called")
 
-        // Keep this line REMOVED: WindowCompat.setDecorFitsSystemWindows(window, false)
-
         val serviceIntent = Intent(this, LocationService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
 
         auth = FirebaseAuth.getInstance()
-        var_db = FirebaseFirestore.getInstance() // Initialize here
+        var_db = FirebaseFirestore.getInstance()
 
         auth.addAuthStateListener(authStateListener)
         _firebaseUser = auth.currentUser
@@ -152,10 +149,9 @@ class MainActivity : ComponentActivity() {
                     LocalUserName provides globalUserNameMutableState
                 ){
                     if (isLoggedIn) {
-                        Scaffold( // This is the MAIN Scaffold for the app
+                        Scaffold(
                             bottomBar = {
                                 val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-                                // Only show bottom nav bar if not on auth screens or chat screen
                                 val showBottomNav = currentRoute != "login" &&
                                         currentRoute != "registration" &&
                                         currentRoute != "forgotPassword" &&
@@ -165,17 +161,12 @@ class MainActivity : ComponentActivity() {
                                     BottomNavigationBar(navController = navController)
                                 }
                             }
-                        ) { paddingValuesFromMainActivityScaffold -> // These paddingValues already include all system insets
+                        ) { paddingValuesFromMainActivityScaffold ->
                             NavHost(
                                 navController = navController,
                                 startDestination = BottomNavItem.Listings.route,
-                                // Apply the main Scaffold's padding to the NavHost.
-                                // This provides space for the Bottom Nav Bar and system navigation bar.
                                 modifier = Modifier.padding(paddingValuesFromMainActivityScaffold)
                             ) {
-                                // --- START OF INDIVIDUAL SCREEN COMPOSABLES ---
-
-                                // ListingsScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.Listings.route) {
                                     ListingsScreen(
                                         viewModel = listingsViewModel,
@@ -186,7 +177,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // ListingDetailScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(
                                     "listingDetail/{listingId}",
                                     arguments = listOf(
@@ -222,7 +212,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                // AcceptedRequestsScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(
                                     "acceptedRequests/{listingId}/{ownerId}",
                                     arguments = listOf(
@@ -246,7 +235,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                // ChatScreen: Continues to manage its own Scaffold and TopAppBar
                                 composable(
                                     "chatScreen/{listingId}/{participantsJson}/{chatType}",
                                     arguments = listOf(
@@ -274,7 +262,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // ProfileScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.Profile.route) {
                                     ProfileScreen(
                                         onSignOut = {
@@ -288,7 +275,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // CreateRequestScreen: Will now manage its own Scaffold and TopAppBar
                                 composable(BottomNavItem.CreateRequest.route) {
                                     CreateRequestScreen(onNavigateToListings = {
                                         listingsViewModel.onNewListingCreated()
@@ -299,10 +285,22 @@ class MainActivity : ComponentActivity() {
                                         }
                                     })
                                 }
-                                // --- END OF INDIVIDUAL SCREEN COMPOSABLES ---
+
+                                composable(BottomNavItem.Redeem.route) {
+                                    RedeemScreen(
+                                        onNavigateToHistory = {
+                                            navController.navigate("transactionHistory")
+                                        }
+                                    )
+                                }
+
+                                composable("transactionHistory") {
+                                    TransactionHistoryScreen(onBack = { navController.popBackStack() })
+                                }
+
                             }
                         }
-                    } else { // Not logged in: Show auth screens (will also manage their own Scaffolds)
+                    } else {
                         LaunchedEffect(isLoggedIn) {
                             if (!isLoggedIn) {
                                 val currentRoute = navController.currentBackStackEntry?.destination?.route
@@ -325,7 +323,6 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             startDestination = if (showRegistration) "registration" else if (showForgotPassword) "forgotPassword" else "login"
                         ) {
-                            // LoginScreen: Will manage its own Scaffold and TopAppBar
                             composable("login") {
                                 LoginScreen(
                                     onLoginSuccess = {
@@ -357,7 +354,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
-                            // RegistrationScreen: Will manage its own Scaffold and TopAppBar
                             composable("registration") {
                                 RegistrationScreen(
                                     onRegisterSuccess = {
@@ -391,7 +387,6 @@ class MainActivity : ComponentActivity() {
                                     registerErrorMessage = registerErrorMessage
                                 )
                             }
-                            // ForgotPasswordScreen: Will manage its own Scaffold and TopAppBar
                             composable("forgotPassword") {
                                 ForgotPasswordScreen(
                                     onResetSuccess = {
@@ -430,12 +425,12 @@ class MainActivity : ComponentActivity() {
         val items = listOf(
             BottomNavItem.Listings,
             BottomNavItem.CreateRequest,
+            BottomNavItem.Redeem,
             BottomNavItem.Profile
         )
 
         NavigationBar(
-            modifier = Modifier
-                .height(65.dp)
+            modifier = Modifier.height(65.dp)
         ) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
@@ -460,26 +455,19 @@ class MainActivity : ComponentActivity() {
                     },
                     selected = isSelected,
                     onClick = {
-                        // Special handling for Listings to clear the back stack
                         if (item.route == BottomNavItem.Listings.route) {
                             navController.navigate(item.route) {
-                                // Pop up to the start destination of the graph to
-                                // clear all destinations from the back stack.
                                 popUpTo(navController.graph.startDestinationId) {
-                                    inclusive = true // Include the start destination itself if desired
-                                    saveState = false // Do not save state when clearing the stack
+                                    inclusive = true
+                                    saveState = false
                                 }
-                                // Avoid recreating the same destination when re-selecting the same item
                                 launchSingleTop = true
-                                // If you want to prevent restoring previous state for Listings when clicked again
                                 restoreState = false
                             }
                         } else {
                             navController.navigate(item.route) {
                                 navController.graph.startDestinationRoute?.let { route ->
-                                    popUpTo(route) {
-                                        saveState = true
-                                    }
+                                    popUpTo(route) { saveState = true }
                                 }
                                 launchSingleTop = true
                                 restoreState = true
