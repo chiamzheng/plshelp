@@ -65,12 +65,10 @@ fun ProfileScreen(
         derivedStateOf {
             myListings.sortedWith(compareBy { listing ->
                 when {
-                    // Priority 1: "Active" listings where `fulfilledBy` is not empty
-                    listing.status == "active" && listing.fulfilledBy?.isNotEmpty() == true -> 0
-                    // Priority 2: "Active" listings with accepted offers
-                    listing.status == "active" && listing.acceptedBy.isNotEmpty() -> 1
-                    // Priority 3: All other listings (active with no offers, or fulfilled status)
-                    else -> 2
+                    listing.status == "active" && listing.fulfilledBy?.isNotEmpty() == true -> 0 // ACTIVE
+                    listing.status == "active" && listing.acceptedBy.isNotEmpty() -> 1 // OFFER RECEIVED
+                    listing.status != "fulfilled" -> 2 // NO STATUS
+                    else -> 3 // FULFILLED
                 }
             })
         }
@@ -209,13 +207,13 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 sortedMyListings.forEach { listing ->
-                    // Corrected Listing Status logic based on your request
                     val statusForUserListing: ListingStatus? = when {
+                        listing.status == "fulfilled" ->
+                            ListingStatus("FULFILLED", Color.Gray)
                         listing.status == "active" && listing.fulfilledBy?.isNotEmpty() == true ->
                             ListingStatus("ACTIVE", Color(0xFF338a4d))
                         listing.status == "active" && listing.acceptedBy.isNotEmpty() ->
                             ListingStatus("OFFER RECEIVED", Color(0xFFb0aa0c))
-                        // The user specified "status active with neither = nothing", so no else block
                         else -> null
                     }
 
