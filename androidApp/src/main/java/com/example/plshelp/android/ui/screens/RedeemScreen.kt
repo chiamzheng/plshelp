@@ -1,22 +1,24 @@
 package com.example.plshelp.android.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.functions.ktx.functions
 import com.google.firebase.ktx.Firebase
+import com.example.plshelp.android.R  // <-- needed for R.drawable references
 
 data class RedeemableItem(
     val id: String,
     val name: String,
     val cost: Int,
-    val imageUrl: String
+    val imageRes: Int
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,12 +29,12 @@ fun RedeemScreen(
 ) {
     val items = remember {
         listOf(
-            RedeemableItem("item1", "Coffee Voucher", 100, "https://yourcdn.com/images/coffee.png"),
-            RedeemableItem("item2", "Movie Ticket", 900, "https://yourcdn.com/images/movie.png"),
-            RedeemableItem("item3", "Gym Pass", 300, "https://yourcdn.com/images/giftcard.png"),
-            RedeemableItem("item4", "Meal Voucher", 400, "https://yourcdn.com/images/meal.png"),
-            RedeemableItem("item5", "NTUC $5", 500, "https://yourcdn.com/images/gym.png"),
-            RedeemableItem("item6", "NTUC $10", 1000, "https://yourcdn.com/images/shopping.png"),
+            RedeemableItem("item1", "Coffee Voucher", 100, R.drawable.coffee),
+            RedeemableItem("item2", "Movie Ticket", 900, R.drawable.movie),
+            RedeemableItem("item3", "Gym Pass", 300, R.drawable.gym),
+            RedeemableItem("item4", "Meal Voucher", 400, R.drawable.food),
+            RedeemableItem("item5", "NTUC $5", 500, R.drawable.fairprice),
+            RedeemableItem("item6", "NTUC $10", 1000, R.drawable.fairprice),
         )
     }
 
@@ -72,8 +74,8 @@ fun RedeemScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(
-                                model = item.imageUrl,
+                            Image(
+                                painter = painterResource(id = item.imageRes),
                                 contentDescription = item.name,
                                 modifier = Modifier
                                     .size(56.dp)
